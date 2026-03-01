@@ -1,0 +1,17 @@
+{
+    "name": "kot-billing-system",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Keyboard-Driven KOT & Billing Management System for Restaurant Operations",
+    "scripts": {
+        "dev": "vite --host --port 5173",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "devDependencies": {
+        "vite": "^5.4.0"
+    },
+    "dependencies": {
+        "firebase": "^12.10.0"
+    }
+}

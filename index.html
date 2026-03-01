@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KOT & Billing System — Restaurant POS</title>
+    <meta name="description"
+        content="High-speed keyboard-driven KOT and billing management system for restaurant operations">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/print.css" media="print">
+</head>
+
+<body>
+    <!-- ========== Auth Page (Login / Register) ========== -->
+    <div id="auth-page" class="auth-page">
+        <div class="auth-card">
+            <div class="auth-header">
+                <span class="material-symbols-outlined" style="font-size:56px;color:var(--accent)">restaurant</span>
+                <h1 style="font-size:1.8rem;font-weight:700;margin-top:12px">KOT System</h1>
+                <p style="color:var(--text-muted);font-size:0.9rem">Kitchen Order & Billing Management</p>
+            </div>
+
+            <div class="auth-tabs">
+                <button class="auth-tab active" id="auth-tab-login">Login</button>
+                <button class="auth-tab" id="auth-tab-register">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <div id="auth-form-login" class="auth-form">
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" id="login-email" placeholder="you@restaurant.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="login-password" placeholder="Your password">
+                </div>
+                <button class="btn btn-primary auth-btn" id="btn-login">
+                    <span class="material-symbols-outlined">login</span> Login
+                </button>
+            </div>
+
+            <!-- Register Form -->
+            <div id="auth-form-register" class="auth-form hidden">
+                <div class="form-group">
+                    <label class="form-label">I want to...</label>
+                    <select class="form-select" id="register-type">
+                        <option value="admin">Create a New Restaurant</option>
+                        <option value="salesman">Join an Existing Restaurant</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Your Name</label>
+                    <input type="text" class="form-input" id="register-name" placeholder="Full name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email</label>
+                    <input type="email" class="form-input" id="register-email" placeholder="you@restaurant.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="register-password" placeholder="Min 6 characters">
+                </div>
+                <!-- Admin: restaurant name -->
+                <div class="form-group" id="register-restaurant-group">
+                    <label class="form-label">Restaurant Name</label>
+                    <input type="text" class="form-input" id="register-restaurant" placeholder="e.g. Royal Kitchen">
+                </div>
+                <!-- Salesman: join code -->
+                <div class="form-group hidden" id="register-code-group">
+                    <label class="form-label">Restaurant Join Code</label>
+                    <input type="text" class="form-input" id="register-code" placeholder="Code from your admin">
+                </div>
+                <button class="btn btn-primary auth-btn" id="btn-register">
+                    <span class="material-symbols-outlined">person_add</span> Register
+                </button>
+            </div>
+
+            <div id="auth-error" class="auth-error hidden"></div>
+        </div>
+    </div>
+
+    <!-- ========== Main App (hidden until authenticated) ========== -->
+    <div id="app" class="hidden">
+        <!-- Sidebar Navigation -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="material-symbols-outlined logo-icon">restaurant</span>
+                    <div class="logo-text">
+                        <h1 id="sidebar-restaurant-name">KOT System</h1>
+                        <span class="logo-subtitle" id="sidebar-restaurant-subtitle">Restaurant POS</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <span class="nav-section-title">Operations</span>
+                    <a href="#/orders" class="nav-item active" data-view="orders" data-role="all" id="nav-orders">
+                        <span class="material-symbols-outlined">receipt_long</span>
+                        <span class="nav-label">New Order</span>
+                        <kbd>Alt+1</kbd>
+                    </a>
+                    <a href="#/active-orders" class="nav-item" data-view="active-orders" data-role="all"
+                        id="nav-active-orders">
+                        <span class="material-symbols-outlined">pending_actions</span>
+                        <span class="nav-label">Active Orders</span>
+                        <kbd>Alt+2</kbd>
+                    </a>
+                </div>
+                <div class="nav-section">
+                    <span class="nav-section-title">Masters</span>
+                    <a href="#/items" class="nav-item" data-view="items" data-role="admin" id="nav-items">
+                        <span class="material-symbols-outlined">lunch_dining</span>
+                        <span class="nav-label">Item Master</span>
+                        <kbd>Alt+3</kbd>
+                    </a>
+                    <a href="#/suppliers" class="nav-item" data-view="suppliers" data-role="admin" id="nav-suppliers">
+                        <span class="material-symbols-outlined">badge</span>
+                        <span class="nav-label">Waiters</span>
+                        <kbd>Alt+4</kbd>
+                    </a>
+                    <a href="#/ingredients" class="nav-item" data-view="ingredients" data-role="admin"
+                        id="nav-ingredients">
+                        <span class="material-symbols-outlined">egg</span>
+                        <span class="nav-label">Ingredients</span>
+                        <kbd>Alt+5</kbd>
+                    </a>
+                    <a href="#/recipes" class="nav-item" data-view="recipes" data-role="admin" id="nav-recipes">
+                        <span class="material-symbols-outlined">menu_book</span>
+                        <span class="nav-label">Recipes</span>
+                        <kbd>Alt+6</kbd>
+                    </a>
+                    <a href="#/tables" class="nav-item" data-view="tables" data-role="admin" id="nav-tables">
+                        <span class="material-symbols-outlined">table_restaurant</span>
+                        <span class="nav-label">Tables</span>
+                        <kbd>Alt+7</kbd>
+                    </a>
+                    <a href="#/purchases" class="nav-item" data-view="purchases" data-role="all" id="nav-purchases">
+                        <span class="material-symbols-outlined">shopping_cart</span>
+                        <span class="nav-label">Purchases</span>
+                        <kbd>Alt+8</kbd>
+                    </a>
+                    <a href="#/grocery-suppliers" class="nav-item" data-view="grocery-suppliers" data-role="all"
+                        id="nav-grocery-suppliers">
+                        <span class="material-symbols-outlined">local_shipping</span>
+                        <span class="nav-label">Suppliers</span>
+                        <kbd>Alt+0</kbd>
+                    </a>
+                </div>
+                <div class="nav-section">
+                    <span class="nav-section-title">Reports</span>
+                    <a href="#/reports" class="nav-item" data-view="reports" data-role="all" id="nav-reports">
+                        <span class="material-symbols-outlined">analytics</span>
+                        <span class="nav-label">Reports</span>
+                        <kbd>Alt+9</kbd>
+                    </a>
+                </div>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="theme-picker-wrapper" style="margin-bottom:10px">
+                    <button class="theme-picker-btn" id="theme-picker-btn">
+                        <span class="material-symbols-outlined">palette</span>
+                        <span class="current-theme-name" id="current-theme-label">Dark</span>
+                        <span class="material-symbols-outlined"
+                            style="font-size:14px;color:var(--text-muted)">expand_less</span>
+                    </button>
+                    <div class="theme-picker-dropdown" id="theme-picker-dropdown">
+                        <div class="theme-option active" data-theme="dark">
+                            <span class="theme-swatch swatch-dark"></span>
+                            <span>Dark</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                        <div class="theme-option" data-theme="light">
+                            <span class="theme-swatch swatch-light"></span>
+                            <span>Light</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                        <div class="theme-option" data-theme="ocean">
+                            <span class="theme-swatch swatch-ocean"></span>
+                            <span>Ocean</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                        <div class="theme-option" data-theme="forest">
+                            <span class="theme-swatch swatch-forest"></span>
+                            <span>Forest</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                        <div class="theme-option" data-theme="crimson">
+                            <span class="theme-swatch swatch-crimson"></span>
+                            <span>Crimson</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                        <div class="theme-option" data-theme="amber">
+                            <span class="theme-swatch swatch-amber"></span>
+                            <span>Amber</span>
+                            <span class="material-symbols-outlined theme-check">check</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Join Code (admin only) -->
+                <div id="join-code-section" class="join-code-section hidden">
+                    <div class="join-code-label">Join Code</div>
+                    <div class="join-code-value" id="join-code-value" title="Click to copy">—</div>
+                </div>
+                <!-- User Info -->
+                <div class="user-info">
+                    <span class="material-symbols-outlined">account_circle</span>
+                    <div style="flex:1">
+                        <span class="user-name" id="sidebar-user-name">User</span>
+                        <span class="user-role" id="sidebar-user-role">—</span>
+                    </div>
+                    <button class="btn btn-sm btn-ghost" id="btn-logout" title="Logout" style="padding:4px">
+                        <span class="material-symbols-outlined" style="font-size:18px;color:var(--danger)">logout</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+        <!-- Main Content Area -->
+        <main id="main-content">
+            <div id="view-container"></div>
+        </main>
+    </div>
+    <!-- Modal Container -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-container" class="modal-container">
+            <div id="modal-content"></div>
+        </div>
+    </div>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+    <!-- Keyboard Shortcuts Bar -->
+    <div id="shortcut-bar">
+        <div class="shortcut-item"><kbd>F1</kbd> KOT Print</div>
+        <div class="shortcut-item"><kbd>F2</kbd> Direct Bill</div>
+        <div class="shortcut-item"><kbd>Ctrl+S</kbd> Save</div>
+        <div class="shortcut-item"><kbd>Esc</kbd> Cancel</div>
+        <div class="shortcut-item"><kbd>Enter</kbd> Add Item</div>
+        <div class="shortcut-item"><kbd>Alt+N</kbd> New Order</div>
+    </div>
+
+    <script type="module" src="/js/app.js"></script>
+</body>
+
+</html>

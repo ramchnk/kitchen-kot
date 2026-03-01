@@ -1,0 +1,147 @@
+/* ===== Print Styles ===== */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #print-container,
+    #print-container * {
+        visibility: visible;
+    }
+
+    #print-container {
+        display: block !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 80mm;
+        background: white;
+        color: black;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        padding: 4mm;
+    }
+
+    .print-header {
+        text-align: center;
+        border-bottom: 1px dashed black;
+        padding-bottom: 8px;
+        margin-bottom: 8px;
+    }
+
+    .print-header h2 {
+        font-size: 16px;
+        margin-bottom: 2px;
+    }
+
+    .print-header p {
+        font-size: 10px;
+    }
+
+    .print-title {
+        text-align: center;
+        font-size: 14px;
+        font-weight: bold;
+        margin: 8px 0;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+
+    .print-meta {
+        font-size: 11px;
+        margin-bottom: 8px;
+        border-bottom: 1px dashed black;
+        padding-bottom: 8px;
+    }
+
+    .print-meta div {
+        display: flex;
+        justify-content: space-between;
+        margin: 2px 0;
+    }
+
+    .print-items {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8px;
+    }
+
+    .print-items th {
+        font-size: 10px;
+        text-align: left;
+        border-bottom: 1px solid black;
+        padding: 4px 2px;
+    }
+
+    .print-items th:last-child,
+    .print-items td:last-child {
+        text-align: right;
+    }
+
+    .print-items td {
+        font-size: 11px;
+        padding: 3px 2px;
+        border-bottom: 1px dotted #ccc;
+    }
+
+    .print-total {
+        border-top: 1px dashed black;
+        padding-top: 6px;
+        margin-top: 4px;
+    }
+
+    .print-total div {
+        display: flex;
+        justify-content: space-between;
+        margin: 2px 0;
+        font-size: 11px;
+    }
+
+    .print-total .grand-total {
+        font-size: 14px;
+        font-weight: bold;
+        border-top: 1px solid black;
+        padding-top: 4px;
+        margin-top: 4px;
+    }
+
+    .print-footer {
+        text-align: center;
+        border-top: 1px dashed black;
+        padding-top: 8px;
+        margin-top: 8px;
+        font-size: 10px;
+    }
+
+    .print-kot-title {
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+        background: black;
+        color: white;
+        padding: 4px;
+        margin: 6px 0;
+    }
+
+    .print-kot-items {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .print-kot-items td {
+        font-size: 14px;
+        font-weight: bold;
+        padding: 4px 2px;
+        border-bottom: 1px dashed #999;
+    }
+
+    .print-kot-items .item-name {
+        font-size: 14px;
+    }
+
+    .print-kot-items .item-qty {
+        text-align: right;
+        font-size: 16px;
+    }
+}
