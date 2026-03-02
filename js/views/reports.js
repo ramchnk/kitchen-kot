@@ -1,6 +1,6 @@
 // ===== Reports View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDate, todayISO, isToday } from '../utils.js';
+import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML } from '../utils.js';
 
 export async function renderReportsView(container) {
   container.innerHTML = `
@@ -214,7 +214,8 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
     });
   });
 
-  const supplierList = Object.values(supplierIncentives);
+  const supplierEntries = Object.entries(supplierIncentives);
+  const supplierList = supplierEntries.map(([id, data]) => ({ ...data, _id: id }));
   const grandTotalIncentive = supplierList.reduce((s, si) => s + si.totalIncentive, 0);
 
   tab.innerHTML = `
@@ -235,7 +236,12 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
         <div class="card mb-2">
           <div class="card-header">
             <span class="card-title">${si.name}</span>
-            <span class="text-success font-mono" style="font-size:1.1rem;font-weight:700">${formatCurrency(si.totalIncentive)}</span>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="text-success font-mono" style="font-size:1.1rem;font-weight:700">${formatCurrency(si.totalIncentive)}</span>
+              <button class="btn btn-sm btn-secondary btn-print-incentive" data-waiter-id="${si._id}" title="Print Incentive Slip">
+                <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
+              </button>
+            </div>
           </div>
           <table class="data-table">
             <thead>
@@ -270,6 +276,18 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
         </div>
       `).join('')}
   `;
+
+  // Wire up print buttons
+  tab.querySelectorAll('.btn-print-incentive').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const waiterId = btn.dataset.waiterId;
+      const waiterData = supplierIncentives[waiterId];
+      if (waiterData) {
+        const printHTML = generateWaiterIncentivePrintHTML(waiterData, dateStr);
+        printContent(printHTML);
+      }
+    });
+  });
 }
 
 function generateConsumptionReport(container, orders, allRecipes, ingredientMap, dateStr) {

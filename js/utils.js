@@ -187,3 +187,41 @@ export function generateBillPrintHTML(order, supplierName, tableName) {
     </div>
   `;
 }
+
+export function generateWaiterIncentivePrintHTML(waiterData, dateStr) {
+  const formattedDate = formatDate(dateStr);
+
+  const itemsHTML = Object.values(waiterData.items).map(item => `
+    <tr>
+      <td>${item.name}</td>
+      <td style="text-align:center">${item.quantity}</td>
+      <td style="text-align:right">${item.incentivePercent}%</td>
+      <td style="text-align:right">${formatCurrency(item.incentiveAmount)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="print-header">
+      <h2>WAITER INCENTIVE</h2>
+      <p>Daily Earnings Report</p>
+    </div>
+    <div class="print-title">${waiterData.name}</div>
+    <div class="print-meta">
+      <div><span>Date:</span><span>${formattedDate}</span></div>
+      <div><span>Total Sales:</span><span>${formatCurrency(waiterData.totalSales)}</span></div>
+    </div>
+    <table class="print-items">
+      <thead>
+        <tr><th>Item</th><th>Qty</th><th>Inc%</th><th>Amount</th></tr>
+      </thead>
+      <tbody>${itemsHTML}</tbody>
+    </table>
+    <div class="print-total">
+      <div><span>Total Sales:</span><span>${formatCurrency(waiterData.totalSales)}</span></div>
+      <div class="grand-total"><span>INCENTIVE EARNED:</span><span>${formatCurrency(waiterData.totalIncentive)}</span></div>
+    </div>
+    <div class="print-footer">
+      <p>--- Waiter Copy ---</p>
+    </div>
+  `;
+}
