@@ -35,6 +35,9 @@ export async function renderReportsView(container) {
       <button class="tab-btn" data-tab="purchase">
         <span class="material-symbols-outlined" style="font-size:18px">shopping_cart</span> Purchase Report
       </button>
+      <button class="tab-btn" data-tab="product-stock">
+        <span class="material-symbols-outlined" style="font-size:18px">local_drink</span> Product Stock
+      </button>
     </div>
 
     <!-- Tab Contents -->
@@ -42,6 +45,7 @@ export async function renderReportsView(container) {
     <div class="tab-content" id="tab-incentive"></div>
     <div class="tab-content" id="tab-consumption"></div>
     <div class="tab-content" id="tab-purchase"></div>
+    <div class="tab-content" id="tab-product-stock"></div>
   `;
 
   // Tab switching
@@ -71,6 +75,7 @@ async function generateReports(container) {
   const ingredients = await DB.getAll('ingredients');
   const allRecipes = await DB.getAll('itemIngredients');
   const purchases = await DB.getAll('purchases');
+  const grocerySuppliers = await DB.getAll('grocerySuppliers');
 
   // Filter orders by date and billed status
   const dayOrders = orders.filter(o => {
@@ -82,11 +87,13 @@ async function generateReports(container) {
   const itemMap = Object.fromEntries(items.map(i => [i.id, i]));
   const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
   const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
+  const grocerySupplierMap = Object.fromEntries(grocerySuppliers.map(s => [s.id, s]));
 
   generateSalesReport(container, dayOrders, itemMap, dateStr);
   generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
   generateConsumptionReport(container, dayOrders, allRecipes, ingredientMap, dateStr);
-  generatePurchaseReport(container, purchases, ingredientMap, supplierMap, dateStr);
+  generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
+  generateProductStockReport(dayOrders, purchases, items, dateStr);
 }
 
 function generateSalesReport(container, orders, itemMap, dateStr) {
@@ -374,7 +381,7 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
   `;
 }
 
-function generatePurchaseReport(container, purchases, ingredientMap, supplierMap, dateStr) {
+function generatePurchaseReport(container, purchases, ingredientMap, itemMap, supplierMap, dateStr) {
   const tab = document.getElementById('tab-purchase');
 
   const dayPurchases = purchases.filter(p => p.date === dateStr);
@@ -401,7 +408,7 @@ function generatePurchaseReport(container, purchases, ingredientMap, supplierMap
         <thead>
           <tr>
             <th>#</th>
-            <th>Ingredient</th>
+            <th>Item</th>
             <th class="text-right">Quantity</th>
             <th>Unit</th>
             <th class="text-right">Cost</th>
@@ -412,14 +419,23 @@ function generatePurchaseReport(container, purchases, ingredientMap, supplierMap
           ${dayPurchases.length === 0 ?
       '<tr><td colspan="6"><div class="empty-state" style="padding:30px"><p>No purchases on this date</p></div></td></tr>' :
       dayPurchases.map((p, i) => {
-        const ing = ingredientMap[p.ingredientId];
+        let name, unit;
+        if (p.productId) {
+          const prod = itemMap[p.productId];
+          name = (prod?.name || 'Unknown') + ' <span class="status-badge" style="background:var(--info-bg);color:var(--info);font-size:0.6rem">PRODUCT</span>';
+          unit = 'pcs';
+        } else {
+          const ing = ingredientMap[p.ingredientId];
+          name = ing?.name || 'Unknown';
+          unit = ing?.unit || '—';
+        }
         const sup = supplierMap[p.supplierId];
         return `
                 <tr>
                   <td class="text-muted">${i + 1}</td>
-                  <td><strong>${ing?.name || 'Unknown'}</strong></td>
+                  <td><strong>${name}</strong></td>
                   <td class="text-right font-mono">${p.quantity}</td>
-                  <td>${ing?.unit || '—'}</td>
+                  <td>${unit}</td>
                   <td class="text-right amount font-mono">${formatCurrency(p.cost)}</td>
                   <td>${sup?.name || '—'}</td>
                 </tr>
@@ -437,5 +453,130 @@ function generatePurchaseReport(container, purchases, ingredientMap, supplierMap
         ` : ''}
       </table>
     </div>
+  `;
+}
+
+// ===== Product Stock Report (Cool Drinks & Cigarettes) =====
+function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) {
+  const tab = document.getElementById('tab-product-stock');
+  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+
+  const products = allItems.filter(i => DIRECT_CATEGORIES.includes((i.category || '').toUpperCase()));
+
+  if (products.length === 0) {
+    tab.innerHTML = `<div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">local_drink</span><p>No Cool Drinks or Cigarette products found in Item Master</p></div>`;
+    return;
+  }
+
+  const dayPurchases = allPurchases.filter(p => p.date === dateStr && p.productId);
+
+  const productData = products.map(prod => {
+    const purchased = dayPurchases
+      .filter(p => p.productId === prod.id)
+      .reduce((s, p) => s + (p.quantity || 0), 0);
+
+    const purchaseCost = dayPurchases
+      .filter(p => p.productId === prod.id)
+      .reduce((s, p) => s + (p.cost || 0), 0);
+
+    let sold = 0;
+    let saleAmount = 0;
+    dayOrders.forEach(order => {
+      (order.items || []).forEach(item => {
+        if (item.itemId === prod.id) {
+          sold += item.quantity;
+          saleAmount += item.amount || (item.quantity * item.price);
+        }
+      });
+    });
+
+    return {
+      id: prod.id,
+      name: prod.name,
+      category: prod.category,
+      currentStock: prod.currentStock || 0,
+      purchased,
+      purchaseCost,
+      sold,
+      saleAmount,
+    };
+  });
+
+  const totalPurchased = productData.reduce((s, p) => s + p.purchased, 0);
+  const totalSold = productData.reduce((s, p) => s + p.sold, 0);
+  const totalPurchaseCost = productData.reduce((s, p) => s + p.purchaseCost, 0);
+  const totalSaleAmount = productData.reduce((s, p) => s + p.saleAmount, 0);
+
+  const categories = {};
+  productData.forEach(p => {
+    if (!categories[p.category]) categories[p.category] = [];
+    categories[p.category].push(p);
+  });
+
+  tab.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon blue"><span class="material-symbols-outlined">add_shopping_cart</span></div>
+        <div><div class="stat-value">${totalPurchased}</div><div class="stat-label">Purchased Today</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange"><span class="material-symbols-outlined">shopping_bag</span></div>
+        <div><div class="stat-value">${totalSold}</div><div class="stat-label">Sold Today</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
+        <div><div class="stat-value">${formatCurrency(totalPurchaseCost)}</div><div class="stat-label">Purchase Cost</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon purple"><span class="material-symbols-outlined">point_of_sale</span></div>
+        <div><div class="stat-value">${formatCurrency(totalSaleAmount)}</div><div class="stat-label">Sale Amount</div></div>
+      </div>
+    </div>
+
+    ${Object.entries(categories).map(([cat, items]) => `
+      <div class="card mb-2">
+        <div class="card-header">
+          <span class="card-title">${cat.toUpperCase() === 'COOL DRINKS' ? '\ud83e\udd64' : '\ud83d\udeac'} ${cat} \u2014 ${formatDate(dateStr)}</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th class="text-right">Purchased</th>
+              <th class="text-right">Purchase Cost</th>
+              <th class="text-right">Sold</th>
+              <th class="text-right">Sale Amount</th>
+              <th class="text-right">Current Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(p => `
+              <tr>
+                <td><strong>${p.name}</strong></td>
+                <td class="text-right font-mono">${p.purchased > 0 ? `<span class="text-success">+${p.purchased}</span>` : '\u2014'}</td>
+                <td class="text-right font-mono">${p.purchaseCost > 0 ? formatCurrency(p.purchaseCost) : '\u2014'}</td>
+                <td class="text-right font-mono">${p.sold > 0 ? `<span class="text-danger">-${p.sold}</span>` : '\u2014'}</td>
+                <td class="text-right font-mono">${p.saleAmount > 0 ? formatCurrency(p.saleAmount) : '\u2014'}</td>
+                <td class="text-right font-mono">
+                  <span class="status-badge ${p.currentStock > 0 ? 'status-active' : 'status-inactive'}" style="font-weight:700">
+                    ${p.currentStock}
+                  </span>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700">
+              <td>Total</td>
+              <td class="text-right font-mono text-success">+${items.reduce((s, p) => s + p.purchased, 0)}</td>
+              <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.purchaseCost, 0))}</td>
+              <td class="text-right font-mono text-danger">-${items.reduce((s, p) => s + p.sold, 0)}</td>
+              <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.saleAmount, 0))}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `).join('')}
   `;
 }

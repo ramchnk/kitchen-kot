@@ -2,6 +2,11 @@
 import { DB } from '../db.js';
 import { formatCurrency, showToast, showModal, closeModal } from '../utils.js';
 
+const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+function isStockTracked(category) {
+  return DIRECT_PURCHASE_CATEGORIES.includes((category || '').toUpperCase());
+}
+
 export async function renderItemsView(container) {
   const items = await DB.getAll('items');
 
@@ -36,6 +41,7 @@ export async function renderItemsView(container) {
             <th>Item Name</th>
             <th>Category</th>
             <th class="text-right">Selling Price</th>
+            <th class="text-right">Stock</th>
             <th class="text-right">Incentive %</th>
             <th class="text-center">Status</th>
             <th class="text-center">Actions</th>
@@ -69,7 +75,7 @@ export async function renderItemsView(container) {
 
 function renderItemRows(items) {
   if (items.length === 0) {
-    return '<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">lunch_dining</span><p>No items found</p></div></td></tr>';
+    return '<tr><td colspan="8"><div class="empty-state"><span class="material-symbols-outlined">lunch_dining</span><p>No items found</p></div></td></tr>';
   }
 
   return items.map(item => `
@@ -78,6 +84,11 @@ function renderItemRows(items) {
       <td><strong>${item.name}</strong></td>
       <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
       <td class="text-right amount font-mono">${formatCurrency(item.sellingPrice)}</td>
+      <td class="text-right font-mono">
+        ${isStockTracked(item.category)
+      ? `<span class="status-badge ${(item.currentStock || 0) > 0 ? 'status-active' : 'status-inactive'}" style="font-weight:600">${item.currentStock || 0}</span>`
+      : '<span class="text-muted">—</span>'}
+      </td>
       <td class="text-right font-mono">${item.incentivePercent || 0}%</td>
       <td class="text-center">
         <span class="status-badge ${item.active ? 'status-active' : 'status-inactive'}">
