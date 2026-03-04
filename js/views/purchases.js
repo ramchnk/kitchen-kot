@@ -249,10 +249,10 @@ function showPurchaseForm(container) {
         <label class="form-label">Payment *</label>
         <div style="display:flex;gap:6px;height:38px;align-items:center">
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border);font-size:0.85rem;font-weight:600">
-            <input type="radio" name="pur-payment-type" value="cash" checked style="margin:0"> 💵 Cash
+            <input type="radio" name="pur-payment-type" value="cash" style="margin:0"> 💵 Cash
           </label>
           <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border);font-size:0.85rem;font-weight:600">
-            <input type="radio" name="pur-payment-type" value="credit" style="margin:0"> 📝 Credit
+            <input type="radio" name="pur-payment-type" value="credit" checked style="margin:0"> 📝 Credit
           </label>
         </div>
       </div>
@@ -325,8 +325,8 @@ function showPurchaseForm(container) {
 
   // Build searchable data: combine ingredients + products
   const searchableItems = [
-    ...allIngredients.map(i => ({ type: 'ingredient', id: i.id, name: i.name, unit: i.unit, category: '🥬 Ingredient' })),
-    ...allProducts.map(p => ({ type: 'product', id: p.id, name: p.name, unit: 'pcs', category: `📦 ${p.category}`, price: p.sellingPrice })),
+    ...allIngredients.map(i => ({ type: 'ingredient', id: i.id, name: i.name, unit: i.unit, category: '🥬 Ingredient', code: '' })),
+    ...allProducts.map(p => ({ type: 'product', id: p.id, name: p.name, unit: 'pcs', category: `📦 ${p.category}`, price: p.sellingPrice, code: p.code || '' })),
   ];
 
   setupPurchaseItemSearch(searchableItems);
@@ -369,7 +369,7 @@ function showPurchaseForm(container) {
   document.getElementById('modal-pur-save')?.addEventListener('click', async () => {
     const supplierId = document.getElementById('modal-pur-supplier').value;
     const date = document.getElementById('modal-pur-date').value;
-    const paymentType = document.querySelector('input[name="pur-payment-type"]:checked')?.value || 'cash';
+    const paymentType = document.querySelector('input[name="pur-payment-type"]:checked')?.value || 'credit';
 
     if (!supplierId) { showToast('Please select a supplier', 'error'); return; }
     if (!date) { showToast('Please select a date', 'error'); return; }
@@ -450,7 +450,8 @@ function setupPurchaseItemSearch(searchableItems) {
     } else {
       filtered = searchableItems.filter(item =>
         item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query)
+        item.category.toLowerCase().includes(query) ||
+        (item.code && item.code.toLowerCase().includes(query))
       );
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
@@ -478,9 +479,10 @@ function setupPurchaseItemSearch(searchableItems) {
       for (const item of catItems) {
         const priceLabel = item.price ? ` — ${formatCurrency(item.price)}` : '';
         const unitLabel = item.type === 'ingredient' ? ` (${item.unit})` : '';
+        const codeLabel = item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.72rem;font-weight:600;margin-right:4px">${item.code}</code>` : '';
         html += `<div class="search-dropdown-item ${flatIdx === highlightIdx ? 'highlighted' : ''}" data-flat-idx="${flatIdx}">
                   <div>
-                    <span>${item.name}</span>
+                    ${codeLabel}<span>${item.name}</span>
                     <span style="color:var(--text-muted);font-size:0.78rem">${unitLabel}</span>
                     ${item.type === 'product' ? ' <span class="status-badge" style="background:var(--info-bg);color:var(--info);font-size:0.6rem;margin-left:4px">PRODUCT</span>' : ''}
                   </div>
