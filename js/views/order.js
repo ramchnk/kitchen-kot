@@ -1,8 +1,9 @@
 // ===== Order Entry View (Keyboard-First POS) =====
 import { DB } from '../db.js';
-import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateBillPrintHTML } from '../utils.js';
+import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO } from '../utils.js';
 import { registerShortcut, unregisterShortcut } from '../keyboard.js';
 import { LiquorApi } from '../liquorApi.js';
+import { Auth } from '../auth.js';
 
 let orderState = {
   supplierId: null,
@@ -28,10 +29,14 @@ export async function renderOrderView(container) {
   tables = (await DB.getAll('tables')).filter(t => t.active);
   menuItems = (await DB.getAll('items')).filter(i => i.active);
 
-  // Merge liquor items if enabled
-  if (LiquorApi.isEnabled()) {
+  // Always load liquor items if account has liquor enabled
+  const account = Auth.getCurrentAccount();
+  if (account?.isLiquorEnabled) {
+    await LiquorApi.ensureReady();
     const liquorItems = LiquorApi.getProducts();
-    menuItems = [...menuItems, ...liquorItems];
+    if (liquorItems.length > 0) {
+      menuItems = [...menuItems, ...liquorItems];
+    }
   }
 
   container.innerHTML = `
@@ -46,9 +51,14 @@ export async function renderOrderView(container) {
               <p class="view-subtitle" id="order-view-subtitle">Keyboard-driven order entry</p>
             </div>
           </div>
-          <button class="btn btn-ghost" id="btn-clear-order" title="Clear Order">
-            <span class="material-symbols-outlined">restart_alt</span> Clear
-          </button>
+          <div style="display:flex;gap:6px">
+            ${Auth.isAdmin() ? `<button class="btn btn-ghost" id="btn-completed-bills" title="Completed Bills">
+              <span class="material-symbols-outlined">receipt_long</span> Completed Bills
+            </button>` : ''}
+            <button class="btn btn-ghost" id="btn-clear-order" title="Clear Order">
+              <span class="material-symbols-outlined">restart_alt</span> Clear
+            </button>
+          </div>
         </div>
 
         <!-- Table & Waiter Selection -->
@@ -203,6 +213,9 @@ function setupOrderEvents() {
     showToast('Order cleared', 'info');
   });
 
+  // Completed Bills
+  document.getElementById('btn-completed-bills')?.addEventListener('click', () => showCompletedBills());
+
   // KOT button
   document.getElementById('btn-kot')?.addEventListener('click', handleKOT);
 
@@ -315,7 +328,8 @@ function setupItemSearch() {
     } else {
       filtered = menuItems.filter(item =>
         item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query)
+        item.category.toLowerCase().includes(query) ||
+        (item.code || '').toLowerCase().includes(query)
       );
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
@@ -329,7 +343,8 @@ function setupItemSearch() {
     } else {
       filtered = menuItems.filter(item =>
         item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query)
+        item.category.toLowerCase().includes(query) ||
+        (item.code || '').toLowerCase().includes(query)
       );
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
@@ -400,6 +415,7 @@ function setupItemSearch() {
       dropdown.innerHTML = filtered.map((item, i) =>
         `<div class="search-dropdown-item ${i === highlightIdx ? 'highlighted' : ''}" data-idx="${i}">
           <div>
+            ${item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.7rem;font-weight:700;margin-right:4px">${item.code}</code>` : ''}
             <span>${item.name}</span>
             <span class="item-category">${item.category}</span>
             ${item.isLiquor ? `<span class="status-badge" style="background:#7c3aed20;color:#7c3aed;font-size:0.6rem;margin-left:4px">🍺 LIQUOR</span>
@@ -800,6 +816,86 @@ async function updateIngredientConsumption(orderItems) {
       }
     }
   }
+}
+
+// ===== Completed Bills Modal =====
+async function showCompletedBills() {
+  const today = todayISO();
+  const allOrders = await DB.getAll('orders');
+  const billedOrders = allOrders
+    .filter(o => o.status === 'billed' && (o.billedAt || o.createdAt || '').startsWith(today))
+    .sort((a, b) => (b.billedAt || b.createdAt || '').localeCompare(a.billedAt || a.createdAt || ''));
+
+  const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
+  const tableMap = Object.fromEntries(tables.map(t => [t.id, t]));
+
+  const content = billedOrders.length === 0
+    ? `<div class="empty-state" style="padding:40px">
+        <span class="material-symbols-outlined">receipt_long</span>
+        <p>No completed bills for today</p>
+      </div>`
+    : `<table class="data-table">
+        <thead>
+          <tr>
+            <th>Bill #</th>
+            <th>Table</th>
+            <th>Waiter</th>
+            <th>Items</th>
+            <th class="text-right">Amount</th>
+            <th>Time</th>
+            <th class="text-center">Reprint</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${billedOrders.map(o => {
+      const tbl = tableMap[o.tableId];
+      const sup = supplierMap[o.supplierId];
+      const time = o.billedAt || o.createdAt || '';
+      const timeStr = time ? new Date(time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+      const itemCount = (o.items || []).reduce((s, i) => s + i.quantity, 0);
+      return `
+              <tr>
+                <td><strong>${o.orderNumber || o.id}</strong></td>
+                <td>${tbl?.name || '—'}</td>
+                <td>${sup?.name || '—'}</td>
+                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${itemCount} item(s)</span></td>
+                <td class="text-right amount font-mono">${formatCurrency(o.totalAmount)}</td>
+                <td class="text-muted">${timeStr}</td>
+                <td class="text-center">
+                  <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
+                    <span class="material-symbols-outlined" style="font-size:16px">print</span>
+                  </button>
+                </td>
+              </tr>`;
+    }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700">
+            <td colspan="4" class="text-right">Total (${billedOrders.length} bills)</td>
+            <td class="text-right amount font-mono">${formatCurrency(billedOrders.reduce((s, o) => s + o.totalAmount, 0))}</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>`;
+
+  showModal(`Completed Bills — ${formatDate(today)}`, content, {
+    large: true,
+    footer: `<button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Close</button>`
+  });
+
+  // Attach reprint handlers
+  document.querySelectorAll('.btn-reprint-bill').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const order = await DB.getById('orders', parseInt(btn.dataset.id));
+      if (!order) { showToast('Order not found', 'error'); return; }
+
+      const sup = supplierMap[order.supplierId];
+      const tbl = tableMap[order.tableId];
+      const printHTML = generateBillPrintHTML(order, sup?.name || '', tbl?.name || 'N/A');
+      printContent(printHTML);
+      showToast(`Reprinting Bill #${order.orderNumber || order.id}`, 'success');
+    });
+  });
 }
 
 export function destroyOrderView() {

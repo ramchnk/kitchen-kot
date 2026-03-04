@@ -102,7 +102,12 @@ export async function renderPurchasesView(container) {
                   <span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary);margin-right:6px">${batch.items.length} item(s)</span>
                   ${itemNames}
                 </td>
-                <td class="text-right amount font-mono">${formatCurrency(batch.totalCost)}</td>
+                <td class="text-right amount font-mono">
+                  ${formatCurrency(batch.totalCost)}
+                  ${batch.items[0]?.paymentType === 'credit'
+        ? ' <span class="status-badge" style="background:#f59e0b20;color:#d97706;font-size:0.6rem">CREDIT</span>'
+        : ' <span class="status-badge" style="background:#10b98120;color:#059669;font-size:0.6rem">CASH</span>'}
+                </td>
                 <td class="text-center">
                   <div style="display:flex;gap:4px;justify-content:center">
                     <button class="btn btn-sm btn-ghost btn-view-purchase" data-batch='${JSON.stringify(batch.items.map(p => p.id))}' title="View Details">
@@ -240,6 +245,17 @@ function showPurchaseForm(container) {
         <label class="form-label">Date *</label>
         <input type="date" class="form-input" id="modal-pur-date" value="${todayISO()}">
       </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Payment *</label>
+        <div style="display:flex;gap:6px;height:38px;align-items:center">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border);font-size:0.85rem;font-weight:600">
+            <input type="radio" name="pur-payment-type" value="cash" checked style="margin:0"> 💵 Cash
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border);font-size:0.85rem;font-weight:600">
+            <input type="radio" name="pur-payment-type" value="credit" style="margin:0"> 📝 Credit
+          </label>
+        </div>
+      </div>
     </div>
 
     <div style="border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;background:var(--bg-tertiary);margin-bottom:16px">
@@ -256,7 +272,10 @@ function showPurchaseForm(container) {
           <input type="number" class="form-input" id="modal-pur-qty" min="0.01" step="0.01" placeholder="Qty" style="margin-bottom:0">
         </div>
         <div style="flex:1">
-          <input type="number" class="form-input" id="modal-pur-cost" min="0" step="0.01" placeholder="Cost ₹" style="margin-bottom:0">
+          <input type="number" class="form-input" id="modal-pur-unit-cost" min="0" step="0.01" placeholder="Cost/Unit ₹" style="margin-bottom:0">
+        </div>
+        <div style="flex:1">
+          <input type="number" class="form-input" id="modal-pur-cost" min="0" step="0.01" placeholder="Total ₹" style="margin-bottom:0">
         </div>
         <button class="btn btn-primary btn-sm" id="modal-pur-add-item" style="height:38px;padding:0 14px" title="Add Item">
           <span class="material-symbols-outlined" style="font-size:18px">add</span>
@@ -272,13 +291,14 @@ function showPurchaseForm(container) {
             <th>Item</th>
             <th class="text-right">Qty</th>
             <th>Unit</th>
-            <th class="text-right">Cost (₹)</th>
+            <th class="text-right">Cost/Unit</th>
+            <th class="text-right">Total (₹)</th>
             <th style="width:40px"></th>
           </tr>
         </thead>
         <tbody id="modal-pur-items-body">
           <tr id="modal-pur-empty-row">
-            <td colspan="6">
+            <td colspan="7">
               <div class="empty-state" style="padding:24px">
                 <span class="material-symbols-outlined">playlist_add</span>
                 <p>No items added. Search for items, enter qty & cost, then click +</p>
@@ -288,7 +308,7 @@ function showPurchaseForm(container) {
         </tbody>
         <tfoot id="modal-pur-items-footer" style="display:none">
           <tr style="font-weight:700">
-            <td colspan="4" class="text-right">Total</td>
+            <td colspan="5" class="text-right">Total</td>
             <td class="text-right amount total font-mono" id="modal-pur-total">₹0.00</td>
             <td></td>
           </tr>
@@ -311,15 +331,45 @@ function showPurchaseForm(container) {
 
   setupPurchaseItemSearch(searchableItems);
 
+  // Enter key navigation: Supplier → Date → Item Search → Qty → Cost/Unit → Total → Add
+  document.getElementById('modal-pur-supplier')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modal-pur-date')?.focus(); }
+  });
+
+  document.getElementById('modal-pur-date')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modal-pur-item-search')?.focus(); }
+  });
+
+  document.getElementById('modal-pur-qty')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modal-pur-unit-cost')?.focus(); }
+  });
+
+  document.getElementById('modal-pur-unit-cost')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modal-pur-cost')?.focus(); }
+  });
+
   document.getElementById('modal-pur-add-item')?.addEventListener('click', () => addPurchaseItem());
 
   document.getElementById('modal-pur-cost')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addPurchaseItem(); }
   });
 
+  // Auto-calculate: Qty × Cost/Unit = Total Cost
+  function autoCalcTotal() {
+    const qty = parseFloat(document.getElementById('modal-pur-qty')?.value) || 0;
+    const unitCost = parseFloat(document.getElementById('modal-pur-unit-cost')?.value) || 0;
+    if (qty > 0 && unitCost > 0) {
+      document.getElementById('modal-pur-cost').value = (qty * unitCost).toFixed(2);
+    }
+  }
+
+  document.getElementById('modal-pur-qty')?.addEventListener('input', autoCalcTotal);
+  document.getElementById('modal-pur-unit-cost')?.addEventListener('input', autoCalcTotal);
+
   document.getElementById('modal-pur-save')?.addEventListener('click', async () => {
     const supplierId = document.getElementById('modal-pur-supplier').value;
     const date = document.getElementById('modal-pur-date').value;
+    const paymentType = document.querySelector('input[name="pur-payment-type"]:checked')?.value || 'cash';
 
     if (!supplierId) { showToast('Please select a supplier', 'error'); return; }
     if (!date) { showToast('Please select a date', 'error'); return; }
@@ -330,10 +380,12 @@ function showPurchaseForm(container) {
     for (const item of purchaseItems) {
       const rec = {
         quantity: item.quantity,
+        unitCost: item.unitCost || 0,
         cost: item.cost,
         supplierId: parseInt(supplierId),
         date,
         batchId,
+        paymentType,
         createdAt: new Date().toISOString(),
       };
 
@@ -360,7 +412,21 @@ function showPurchaseForm(container) {
     }
 
     const totalCost = purchaseItems.reduce((s, i) => s + i.cost, 0);
-    showToast(`Purchase saved! ${purchaseItems.length} item(s) — ${formatCurrency(totalCost)}`, 'success');
+
+    // If credit purchase, create a supplier bill for outstanding tracking
+    if (paymentType === 'credit') {
+      await DB.add('supplierBills', {
+        supplierId: parseInt(supplierId),
+        totalAmount: totalCost,
+        batchId,
+        date,
+        description: `Purchase: ${purchaseItems.map(i => i.itemName).join(', ')}`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const label = paymentType === 'credit' ? ' (Credit — added to outstanding)' : ' (Cash)';
+    showToast(`Purchase saved! ${purchaseItems.length} item(s) — ${formatCurrency(totalCost)}${label}`, 'success');
     resetPurchaseForm();
     closeModal();
     renderPurchasesView(container);
@@ -489,9 +555,11 @@ function setupPurchaseItemSearch(searchableItems) {
 function addPurchaseItem() {
   const searchInput = document.getElementById('modal-pur-item-search');
   const qtyInput = document.getElementById('modal-pur-qty');
+  const unitCostInput = document.getElementById('modal-pur-unit-cost');
   const costInput = document.getElementById('modal-pur-cost');
 
   const quantity = parseFloat(qtyInput.value);
+  const unitCost = parseFloat(unitCostInput.value) || 0;
   const cost = parseFloat(costInput.value) || 0;
 
   if (!selectedPurchaseItem) {
@@ -512,6 +580,7 @@ function addPurchaseItem() {
   if (existing) {
     existing.quantity += quantity;
     existing.cost += cost;
+    existing.unitCost = unitCost || existing.unitCost;
   } else {
     purchaseItems.push({
       type: item.type,
@@ -519,6 +588,7 @@ function addPurchaseItem() {
       itemName: item.name,
       unit: item.unit,
       quantity,
+      unitCost,
       cost,
     });
   }
@@ -529,6 +599,7 @@ function addPurchaseItem() {
   selectedPurchaseItem = null;
   searchInput.value = '';
   qtyInput.value = '';
+  unitCostInput.value = '';
   costInput.value = '';
   searchInput.focus();
 
@@ -544,7 +615,7 @@ function renderPurchaseItemsTable() {
   if (purchaseItems.length === 0) {
     tbody.innerHTML = `
           <tr>
-            <td colspan="6">
+            <td colspan="7">
               <div class="empty-state" style="padding:24px">
                 <span class="material-symbols-outlined">playlist_add</span>
                 <p>No items added. Search for items, enter qty & cost, then click +</p>
@@ -566,6 +637,7 @@ function renderPurchaseItemsTable() {
       </td>
       <td class="text-right font-mono">${item.quantity}</td>
       <td>${item.unit}</td>
+      <td class="text-right font-mono">${item.unitCost ? formatCurrency(item.unitCost) : '—'}</td>
       <td class="text-right amount font-mono">${formatCurrency(item.cost)}</td>
       <td>
         <button class="btn btn-sm btn-ghost text-danger btn-remove-pur-item" data-index="${i}" title="Remove">

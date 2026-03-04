@@ -18,47 +18,51 @@
         background: white;
         color: black;
         font-family: 'Courier New', monospace;
-        font-size: 12px;
-        line-height: 1.4;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.5;
         padding: 4mm;
     }
 
     .print-header {
         text-align: center;
-        border-bottom: 1px dashed black;
+        border-bottom: 2px dashed black;
         padding-bottom: 8px;
         margin-bottom: 8px;
     }
 
     .print-header h2 {
-        font-size: 16px;
+        font-size: 20px;
+        font-weight: 900;
         margin-bottom: 2px;
     }
 
     .print-header p {
-        font-size: 10px;
+        font-size: 12px;
+        font-weight: 700;
     }
 
     .print-title {
         text-align: center;
-        font-size: 14px;
-        font-weight: bold;
+        font-size: 18px;
+        font-weight: 900;
         margin: 8px 0;
         text-transform: uppercase;
         letter-spacing: 2px;
     }
 
     .print-meta {
-        font-size: 11px;
+        font-size: 13px;
+        font-weight: 700;
         margin-bottom: 8px;
-        border-bottom: 1px dashed black;
+        border-bottom: 2px dashed black;
         padding-bottom: 8px;
     }
 
     .print-meta div {
         display: flex;
         justify-content: space-between;
-        margin: 2px 0;
+        margin: 3px 0;
     }
 
     .print-items {
@@ -68,9 +72,10 @@
     }
 
     .print-items th {
-        font-size: 10px;
+        font-size: 13px;
+        font-weight: 900;
         text-align: left;
-        border-bottom: 1px solid black;
+        border-bottom: 2px solid black;
         padding: 4px 2px;
     }
 
@@ -80,13 +85,14 @@
     }
 
     .print-items td {
-        font-size: 11px;
-        padding: 3px 2px;
-        border-bottom: 1px dotted #ccc;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 4px 2px;
+        border-bottom: 1px dotted #999;
     }
 
     .print-total {
-        border-top: 1px dashed black;
+        border-top: 2px dashed black;
         padding-top: 6px;
         margin-top: 4px;
     }
@@ -94,33 +100,35 @@
     .print-total div {
         display: flex;
         justify-content: space-between;
-        margin: 2px 0;
-        font-size: 11px;
+        margin: 3px 0;
+        font-size: 14px;
+        font-weight: 700;
     }
 
     .print-total .grand-total {
-        font-size: 14px;
-        font-weight: bold;
-        border-top: 1px solid black;
+        font-size: 18px;
+        font-weight: 900;
+        border-top: 2px solid black;
         padding-top: 4px;
         margin-top: 4px;
     }
 
     .print-footer {
         text-align: center;
-        border-top: 1px dashed black;
+        border-top: 2px dashed black;
         padding-top: 8px;
         margin-top: 8px;
-        font-size: 10px;
+        font-size: 12px;
+        font-weight: 700;
     }
 
     .print-kot-title {
         text-align: center;
-        font-size: 18px;
-        font-weight: bold;
+        font-size: 22px;
+        font-weight: 900;
         background: black;
         color: white;
-        padding: 4px;
+        padding: 6px;
         margin: 6px 0;
     }
 
@@ -130,18 +138,18 @@
     }
 
     .print-kot-items td {
-        font-size: 14px;
-        font-weight: bold;
-        padding: 4px 2px;
+        font-size: 18px;
+        font-weight: 900;
+        padding: 5px 2px;
         border-bottom: 1px dashed #999;
     }
 
     .print-kot-items .item-name {
-        font-size: 14px;
+        font-size: 18px;
     }
 
     .print-kot-items .item-qty {
         text-align: right;
-        font-size: 16px;
+        font-size: 20px;
     }
 }
