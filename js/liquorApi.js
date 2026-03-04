@@ -115,7 +115,7 @@ async function fetchProducts() {
         // Map liquor products to match the app's item format
         liquorProducts = productList.map((p, index) => ({
             id: `liquor_${index}_${p.SKU}`,
-            name: `${p.brand} ${p.SKU}`,
+            name: p.SKU,
             category: 'LIQUOR',
             sellingPrice: p.salePrice || 0,
             purchasePrice: p.purchasePrice || 0,

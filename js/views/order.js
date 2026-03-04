@@ -321,12 +321,17 @@ function setupItemSearch() {
 
   if (!input || !dropdown) return;
 
+  // Filter out liquor items with no stock
+  function excludeOutOfStockLiquor(items) {
+    return items.filter(item => !item.isLiquor || (item.currentStock || 0) > 0);
+  }
+
   input.addEventListener('input', () => {
     const query = input.value.toLowerCase().trim();
     if (query.length === 0) {
-      filtered = menuItems.slice(0, 15);
+      filtered = excludeOutOfStockLiquor(menuItems).slice(0, 15);
     } else {
-      filtered = menuItems.filter(item =>
+      filtered = excludeOutOfStockLiquor(menuItems).filter(item =>
         item.name.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
@@ -339,9 +344,9 @@ function setupItemSearch() {
   input.addEventListener('focus', () => {
     const query = input.value.toLowerCase().trim();
     if (query.length === 0) {
-      filtered = menuItems.slice(0, 15);
+      filtered = excludeOutOfStockLiquor(menuItems).slice(0, 15);
     } else {
-      filtered = menuItems.filter(item =>
+      filtered = excludeOutOfStockLiquor(menuItems).filter(item =>
         item.name.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
