@@ -29,11 +29,6 @@
                 <p style="color:var(--text-muted);font-size:0.9rem">Kitchen Order & Billing Management</p>
             </div>
 
-            <div class="auth-tabs">
-                <button class="auth-tab active" id="auth-tab-login">Login</button>
-                <button class="auth-tab" id="auth-tab-register">Register</button>
-            </div>
-
             <!-- Login Form -->
             <div id="auth-form-login" class="auth-form">
                 <div class="form-group">
@@ -46,42 +41,6 @@
                 </div>
                 <button class="btn btn-primary auth-btn" id="btn-login">
                     <span class="material-symbols-outlined">login</span> Login
-                </button>
-            </div>
-
-            <!-- Register Form -->
-            <div id="auth-form-register" class="auth-form hidden">
-                <div class="form-group">
-                    <label class="form-label">I want to...</label>
-                    <select class="form-select" id="register-type">
-                        <option value="admin">Create a New Restaurant</option>
-                        <option value="salesman">Join an Existing Restaurant</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Your Name</label>
-                    <input type="text" class="form-input" id="register-name" placeholder="Full name">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Email</label>
-                    <input type="email" class="form-input" id="register-email" placeholder="you@restaurant.com">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Password</label>
-                    <input type="password" class="form-input" id="register-password" placeholder="Min 6 characters">
-                </div>
-                <!-- Admin: restaurant name -->
-                <div class="form-group" id="register-restaurant-group">
-                    <label class="form-label">Restaurant Name</label>
-                    <input type="text" class="form-input" id="register-restaurant" placeholder="e.g. Royal Kitchen">
-                </div>
-                <!-- Salesman: join code -->
-                <div class="form-group hidden" id="register-code-group">
-                    <label class="form-label">Restaurant Join Code</label>
-                    <input type="text" class="form-input" id="register-code" placeholder="Code from your admin">
-                </div>
-                <button class="btn btn-primary auth-btn" id="btn-register">
-                    <span class="material-symbols-outlined">person_add</span> Register
                 </button>
             </div>
 

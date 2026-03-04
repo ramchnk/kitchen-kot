@@ -5,6 +5,7 @@ import {
     signOut, onAuthStateChanged
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { LiquorApi } from './liquorApi.js';
 
 const auth = getAuth();
 
@@ -21,6 +22,11 @@ async function login(email, password) {
     const accountDoc = await getDoc(doc(firestore, 'accounts', currentUser.accountId));
     if (!accountDoc.exists()) throw new Error('Account not found.');
     currentAccount = { id: currentUser.accountId, ...accountDoc.data() };
+
+    // Initialize liquor API if enabled for this account
+    if (currentAccount.isLiquorEnabled) {
+        await LiquorApi.initialize(email, password);
+    }
 
     return currentUser;
 }
@@ -79,6 +85,7 @@ async function logout() {
     await signOut(auth);
     currentUser = null;
     currentAccount = null;
+    LiquorApi.reset();
 }
 
 // ---- Getters ----

@@ -2,6 +2,7 @@
 import { DB } from '../db.js';
 import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateBillPrintHTML } from '../utils.js';
 import { registerShortcut, unregisterShortcut } from '../keyboard.js';
+import { LiquorApi } from '../liquorApi.js';
 
 let orderState = {
   supplierId: null,
@@ -26,6 +27,12 @@ export async function renderOrderView(container) {
   suppliers = (await DB.getAll('suppliers')).filter(s => s.active);
   tables = (await DB.getAll('tables')).filter(t => t.active);
   menuItems = (await DB.getAll('items')).filter(i => i.active);
+
+  // Merge liquor items if enabled
+  if (LiquorApi.isEnabled()) {
+    const liquorItems = LiquorApi.getProducts();
+    menuItems = [...menuItems, ...liquorItems];
+  }
 
   container.innerHTML = `
     <div class="order-layout">
@@ -395,6 +402,8 @@ function setupItemSearch() {
           <div>
             <span>${item.name}</span>
             <span class="item-category">${item.category}</span>
+            ${item.isLiquor ? `<span class="status-badge" style="background:#7c3aed20;color:#7c3aed;font-size:0.6rem;margin-left:4px">🍺 LIQUOR</span>
+            <span style="color:var(--text-muted);font-size:0.75rem;margin-left:4px">Stock: ${item.currentStock || 0}</span>` : ''}
           </div>
           <span class="item-price">${formatCurrency(item.sellingPrice)}</span>
         </div>`
