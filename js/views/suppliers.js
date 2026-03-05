@@ -24,6 +24,7 @@ export async function renderSuppliersView(container) {
         <thead>
           <tr>
             <th>ID</th>
+            <th>Code</th>
             <th>Waiter Name</th>
             <th>Contact</th>
             <th class="text-center">Incentive Tracking</th>
@@ -33,10 +34,11 @@ export async function renderSuppliersView(container) {
         </thead>
         <tbody>
           ${suppliers.length === 0 ? `
-            <tr><td colspan="6"><div class="empty-state"><span class="material-symbols-outlined">badge</span><p>No waiters added yet</p></div></td></tr>
+            <tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">badge</span><p>No waiters added yet</p></div></td></tr>
           ` : suppliers.map(s => `
             <tr>
               <td class="text-muted">${s.id}</td>
+              <td><code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;font-size:0.8rem;font-weight:600">${s.code || '—'}</code></td>
               <td><strong>${s.name}</strong></td>
               <td>${s.contact || '—'}</td>
               <td class="text-center">
@@ -95,9 +97,15 @@ function showSupplierForm(supplier, container) {
   const isEdit = !!supplier;
 
   showModal(isEdit ? 'Edit Waiter' : 'Add New Waiter', `
-    <div class="form-group">
-      <label class="form-label">Waiter Name *</label>
-      <input type="text" class="form-input" id="modal-sup-name" value="${supplier?.name || ''}" placeholder="Waiter name">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Code</label>
+        <input type="text" class="form-input" id="modal-sup-code" value="${supplier?.code || ''}" placeholder="e.g. RJ" style="text-transform:uppercase">
+      </div>
+      <div class="form-group" style="flex:2">
+        <label class="form-label">Waiter Name *</label>
+        <input type="text" class="form-input" id="modal-sup-name" value="${supplier?.name || ''}" placeholder="Waiter name">
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Contact Number</label>
@@ -124,6 +132,7 @@ function showSupplierForm(supplier, container) {
 
     const data = {
       name,
+      code: (document.getElementById('modal-sup-code').value || '').trim().toUpperCase(),
       contact: document.getElementById('modal-sup-contact').value.trim(),
       incentiveEnabled: document.getElementById('modal-sup-incentive').checked,
       active: document.getElementById('modal-sup-active').checked,

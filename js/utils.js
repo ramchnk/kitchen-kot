@@ -128,7 +128,7 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
   const itemsHTML = order.items.map(item => `
     <tr>
       <td class="item-name">${item.itemName}</td>
-      <td class="item-qty">× ${item.quantity}</td>
+      <td class="item-qty">${item.quantity}</td>
     </tr>
   `).join('');
 
@@ -145,6 +145,31 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
     <table class="print-kot-items">${itemsHTML}</table>
     <div class="print-footer">
       <p>--- Kitchen Copy ---</p>
+    </div>
+  `;
+}
+
+export function generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems) {
+  const itemsHTML = counterItems.map(item => `
+    <tr>
+      <td class="item-name">${item.itemName}</td>
+      <td class="item-qty">${item.quantity}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="print-header">
+      <h2>COUNTER ORDER</h2>
+    </div>
+    <div class="print-kot-title">KOT #${order.orderNumber}</div>
+    <div class="print-meta">
+      <div><span>Table:</span><span><strong>${tableName}</strong></span></div>
+      <div><span>Time:</span><span>${formatTime(order.createdAt)}</span></div>
+      ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}
+    </div>
+    <table class="print-kot-items">${itemsHTML}</table>
+    <div class="print-footer">
+      <p>--- Counter Copy ---</p>
     </div>
   `;
 }

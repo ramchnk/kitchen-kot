@@ -3,19 +3,20 @@ import { DB } from '../db.js';
 import { showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderRecipesView(container) {
-    const items = (await DB.getAll('items')).filter(i => i.active);
-    const ingredients = await DB.getAll('ingredients');
-    const allRecipes = await DB.getAll('itemIngredients');
-    const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
+  const EXCLUDE_CATEGORIES = ['LIQUOR', 'CIGARETTE', 'COOL DRINKS'];
+  const items = (await DB.getAll('items')).filter(i => i.active && !EXCLUDE_CATEGORIES.includes((i.category || '').toUpperCase()));
+  const ingredients = await DB.getAll('ingredients');
+  const allRecipes = await DB.getAll('itemIngredients');
+  const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
 
-    // Group recipes by itemId
-    const recipesByItem = {};
-    allRecipes.forEach(r => {
-        if (!recipesByItem[r.itemId]) recipesByItem[r.itemId] = [];
-        recipesByItem[r.itemId].push(r);
-    });
+  // Group recipes by itemId
+  const recipesByItem = {};
+  allRecipes.forEach(r => {
+    if (!recipesByItem[r.itemId]) recipesByItem[r.itemId] = [];
+    recipesByItem[r.itemId].push(r);
+  });
 
-    container.innerHTML = `
+  container.innerHTML = `
     <div class="view-header">
       <div class="view-header-left">
         <span class="material-symbols-outlined view-header-icon">menu_book</span>
@@ -33,8 +34,8 @@ export async function renderRecipesView(container) {
 
     <div id="recipe-cards-container">
       ${items.map(item => {
-        const recipes = recipesByItem[item.id] || [];
-        return `
+    const recipes = recipesByItem[item.id] || [];
+    return `
           <div class="card mb-2 recipe-card" data-item-name="${item.name.toLowerCase()}">
             <div class="card-header">
               <div>
@@ -58,8 +59,8 @@ export async function renderRecipesView(container) {
                 </thead>
                 <tbody>
                   ${recipes.map(r => {
-            const ing = ingredientMap[r.ingredientId];
-            return `
+      const ing = ingredientMap[r.ingredientId];
+      return `
                       <tr>
                         <td><strong>${ing?.name || 'Unknown'}</strong></td>
                         <td class="font-mono">${r.quantity}</td>
@@ -71,7 +72,7 @@ export async function renderRecipesView(container) {
                         </td>
                       </tr>
                     `;
-        }).join('')}
+    }).join('')}
                 </tbody>
               </table>
             ` : `
@@ -79,47 +80,47 @@ export async function renderRecipesView(container) {
             `}
           </div>
         `;
-    }).join('')}
+  }).join('')}
     </div>
   `;
 
-    // Filter
-    document.getElementById('recipe-filter')?.addEventListener('input', (e) => {
-        const q = e.target.value.toLowerCase();
-        container.querySelectorAll('.recipe-card').forEach(card => {
-            card.style.display = card.dataset.itemName.includes(q) ? '' : 'none';
-        });
+  // Filter
+  document.getElementById('recipe-filter')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    container.querySelectorAll('.recipe-card').forEach(card => {
+      card.style.display = card.dataset.itemName.includes(q) ? '' : 'none';
     });
+  });
 
-    // Add ingredient to recipe
-    container.querySelectorAll('.btn-add-recipe').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const itemId = parseInt(btn.dataset.itemId);
-            const item = items.find(i => i.id === itemId);
-            showAddRecipeForm(itemId, item?.name || '', ingredients, container);
-        });
+  // Add ingredient to recipe
+  container.querySelectorAll('.btn-add-recipe').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const itemId = parseInt(btn.dataset.itemId);
+      const item = items.find(i => i.id === itemId);
+      showAddRecipeForm(itemId, item?.name || '', ingredients, container);
     });
+  });
 
-    // Remove ingredient from recipe
-    container.querySelectorAll('.btn-del-recipe').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const id = parseInt(btn.dataset.id);
-            if (confirm('Remove this ingredient from recipe?')) {
-                await DB.remove('itemIngredients', id);
-                showToast('Ingredient removed from recipe', 'warning');
-                renderRecipesView(container);
-            }
-        });
+  // Remove ingredient from recipe
+  container.querySelectorAll('.btn-del-recipe').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.id);
+      if (confirm('Remove this ingredient from recipe?')) {
+        await DB.remove('itemIngredients', id);
+        showToast('Ingredient removed from recipe', 'warning');
+        renderRecipesView(container);
+      }
     });
+  });
 }
 
 function showAddRecipeForm(itemId, itemName, ingredients, container) {
-    const ingOptions = ingredients
-        .filter(i => i.active !== false)
-        .map(i => `<option value="${i.id}">${i.name} (${i.unit})</option>`)
-        .join('');
+  const ingOptions = ingredients
+    .filter(i => i.active !== false)
+    .map(i => `<option value="${i.id}">${i.name} (${i.unit})</option>`)
+    .join('');
 
-    showModal(`Add Ingredient to ${itemName}`, `
+  showModal(`Add Ingredient to ${itemName}`, `
     <div class="form-group">
       <label class="form-label">Ingredient *</label>
       <select class="form-select" id="modal-recipe-ingredient">
@@ -132,24 +133,24 @@ function showAddRecipeForm(itemId, itemName, ingredients, container) {
       <input type="number" class="form-input" id="modal-recipe-qty" min="0.01" step="0.01" placeholder="e.g. 100">
     </div>
   `, {
-        footer: `
+    footer: `
       <button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Cancel</button>
       <button class="btn btn-primary" id="modal-recipe-save"><span class="material-symbols-outlined">save</span> Add</button>
     `
-    });
+  });
 
-    document.getElementById('modal-recipe-save')?.addEventListener('click', async () => {
-        const ingredientId = parseInt(document.getElementById('modal-recipe-ingredient').value);
-        const quantity = parseFloat(document.getElementById('modal-recipe-qty').value);
+  document.getElementById('modal-recipe-save')?.addEventListener('click', async () => {
+    const ingredientId = parseInt(document.getElementById('modal-recipe-ingredient').value);
+    const quantity = parseFloat(document.getElementById('modal-recipe-qty').value);
 
-        if (!ingredientId || !quantity || quantity <= 0) {
-            showToast('Please fill all fields', 'error');
-            return;
-        }
+    if (!ingredientId || !quantity || quantity <= 0) {
+      showToast('Please fill all fields', 'error');
+      return;
+    }
 
-        await DB.add('itemIngredients', { itemId, ingredientId, quantity });
-        showToast('Ingredient added to recipe', 'success');
-        closeModal();
-        renderRecipesView(container);
-    });
+    await DB.add('itemIngredients', { itemId, ingredientId, quantity });
+    showToast('Ingredient added to recipe', 'success');
+    closeModal();
+    renderRecipesView(container);
+  });
 }

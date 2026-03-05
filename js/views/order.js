@@ -1,6 +1,6 @@
 // ===== Order Entry View (Keyboard-First POS) =====
 import { DB } from '../db.js';
-import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO } from '../utils.js';
+import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO } from '../utils.js';
 import { registerShortcut, unregisterShortcut } from '../keyboard.js';
 import { LiquorApi } from '../liquorApi.js';
 import { Auth } from '../auth.js';
@@ -15,6 +15,7 @@ let orderState = {
 let suppliers = [];
 let tables = [];
 let menuItems = [];
+let activeTableIds = new Set();
 
 function resetOrder() {
   orderState = { supplierId: null, tableId: null, items: [], editingOrderId: null };
@@ -28,6 +29,10 @@ export async function renderOrderView(container) {
   suppliers = (await DB.getAll('suppliers')).filter(s => s.active);
   tables = (await DB.getAll('tables')).filter(t => t.active);
   menuItems = (await DB.getAll('items')).filter(i => i.active);
+
+  // Find tables with active/open orders for visual highlighting
+  const allOrders = await DB.getAll('orders');
+  activeTableIds = new Set(allOrders.filter(o => o.status === 'open').map(o => o.tableId));
 
   // Always load liquor items if account has liquor enabled
   const account = Auth.getCurrentAccount();
@@ -188,14 +193,26 @@ function setupOrderEvents() {
       document.getElementById('summary-table').textContent = t.name;
       // Check if this table has an active/open order
       await loadExistingOrderForTable(t.id);
-    }, 'supplier-search');
+    }, 'supplier-search', (item) => {
+      const isActive = activeTableIds.has(item.id);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;${isActive ? 'color:#d97706;font-weight:600' : ''}">
+        <span>${item.name}</span>
+        ${isActive ? '<span class="status-badge" style="background:#f59e0b20;color:#d97706;font-size:0.65rem;font-weight:700">⚡ ACTIVE</span>' : ''}
+      </div>`;
+    });
 
   // Waiter search (Step 2) — after selection, jump to Item Search
   setupSearchDropdown('supplier-search', 'supplier-dropdown', 'supplier-id-input',
     suppliers, (s) => s.name, (s) => s.id, (s) => {
       orderState.supplierId = s.id;
       document.getElementById('summary-supplier').textContent = s.name;
-    }, 'item-search');
+    }, 'item-search', (item) => {
+      const codeLabel = item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.72rem;font-weight:600;margin-right:6px">${item.code}</code>` : '';
+      return `${codeLabel}${item.name}`;
+    }, (item, query) => {
+      return item.name.toLowerCase().includes(query) ||
+        (item.code || '').toLowerCase().includes(query);
+    });
 
   // Item search (Step 3 & 4)
   setupItemSearch();
@@ -226,7 +243,7 @@ function setupOrderEvents() {
   document.getElementById('btn-save-order')?.addEventListener('click', handleSaveOrder);
 }
 
-function setupSearchDropdown(inputId, dropdownId, hiddenId, data, labelFn, valueFn, onSelect, nextFocusId) {
+function setupSearchDropdown(inputId, dropdownId, hiddenId, data, labelFn, valueFn, onSelect, nextFocusId, renderItemFn, filterFn) {
   const input = document.getElementById(inputId);
   const dropdown = document.getElementById(dropdownId);
   const hidden = document.getElementById(hiddenId);
@@ -236,14 +253,18 @@ function setupSearchDropdown(inputId, dropdownId, hiddenId, data, labelFn, value
 
   input.addEventListener('input', () => {
     const query = input.value.toLowerCase().trim();
-    const filtered = data.filter(d => labelFn(d).toLowerCase().includes(query));
+    const filtered = filterFn
+      ? data.filter(d => filterFn(d, query))
+      : data.filter(d => labelFn(d).toLowerCase().includes(query));
     highlightIdx = -1;
     renderDropdown(filtered);
   });
 
   input.addEventListener('focus', () => {
     const query = input.value.toLowerCase().trim();
-    const filtered = data.filter(d => labelFn(d).toLowerCase().includes(query));
+    const filtered = filterFn
+      ? data.filter(d => filterFn(d, query))
+      : data.filter(d => labelFn(d).toLowerCase().includes(query));
     renderDropdown(filtered);
   });
 
@@ -282,7 +303,7 @@ function setupSearchDropdown(inputId, dropdownId, hiddenId, data, labelFn, value
       dropdown.innerHTML = '<div class="search-no-results">No results found</div>';
     } else {
       dropdown.innerHTML = filtered.map((item, i) =>
-        `<div class="search-dropdown-item" data-idx="${i}" data-value="${valueFn(item)}">${labelFn(item)}</div>`
+        `<div class="search-dropdown-item" data-idx="${i}" data-value="${valueFn(item)}">${renderItemFn ? renderItemFn(item) : labelFn(item)}</div>`
       ).join('');
     }
     dropdown.classList.add('visible');
@@ -483,6 +504,7 @@ function setupItemSearch() {
         price: menuItem.sellingPrice,
         amount: qty * menuItem.sellingPrice,
         incentivePercent: menuItem.incentivePercent || 0,
+        kotPrintedQty: 0,
       });
     }
 
@@ -580,6 +602,13 @@ function setupOrderShortcuts() {
   registerShortcut('ctrl+s', handleSaveOrder, 'Save Order');
 }
 
+// Categories that go to the counter (not kitchen)
+const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE'];
+
+function isCounterItem(item) {
+  return COUNTER_CATEGORIES.includes((item.category || '').toUpperCase());
+}
+
 async function handleKOT() {
   if (orderState.items.length === 0) {
     showToast('Add items before printing KOT', 'warning');
@@ -587,23 +616,43 @@ async function handleKOT() {
   }
 
   try {
+    // Compute delta items (only new or increased-quantity items since last KOT)
+    const deltaItems = [];
+    for (const item of orderState.items) {
+      const printed = item.kotPrintedQty || 0;
+      const newQty = item.quantity - printed;
+      if (newQty > 0) {
+        deltaItems.push({ ...item, quantity: newQty });
+      }
+    }
+
+    if (deltaItems.length === 0) {
+      showToast('No new items to print. All items already sent via KOT.', 'warning');
+      return;
+    }
+
     let order;
     if (orderState.editingOrderId) {
-      // Update existing order
+      // Update existing order — save full items with updated kotPrintedQty
       order = await DB.getById('orders', orderState.editingOrderId);
-      order.items = [...orderState.items];
+      // Update kotPrintedQty to current quantity for all items
+      const updatedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
+      order.items = updatedItems;
       order.totalAmount = calculateTotal();
       order.supplierId = orderState.supplierId;
       order.tableId = orderState.tableId;
       await DB.update('orders', order);
+      // Sync local state
+      orderState.items = updatedItems;
     } else {
-      // Create new order
+      // Create new order — all items are new, set kotPrintedQty = quantity
       const orderNumber = await DB.getNextOrderNumber();
+      const savedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
       order = {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
-        items: [...orderState.items],
+        items: savedItems,
         totalAmount: calculateTotal(),
         status: 'open',
         type: 'kot',
@@ -611,17 +660,37 @@ async function handleKOT() {
         billedAt: null,
       };
       await DB.add('orders', order);
+      // Sync local state
+      orderState.items = savedItems;
     }
 
     // Get names for print
     const supplier = orderState.supplierId ? suppliers.find(s => s.id === orderState.supplierId) : null;
     const table = orderState.tableId ? tables.find(t => t.id === orderState.tableId) : null;
+    const supplierName = supplier?.name || '';
+    const tableName = table?.name || 'N/A';
 
-    // Print KOT
-    const printHTML = generateKOTPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
-    printContent(printHTML);
+    // Split delta items into Kitchen vs Counter
+    const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
+    const counterItems = deltaItems.filter(item => isCounterItem(item));
 
-    showToast(`KOT #${order.orderNumber} sent to kitchen!`, 'success');
+    if (kitchenItems.length > 0 && counterItems.length > 0) {
+      // Both types — print Kitchen KOT first, then Counter KOT after a delay
+      const kitchenOrder = { ...order, items: kitchenItems };
+      printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
+
+      setTimeout(() => {
+        printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+      }, 1000);
+    } else if (counterItems.length > 0) {
+      printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+    } else {
+      const printOrder = { ...order, items: kitchenItems };
+      printContent(generateKOTPrintHTML(printOrder, supplierName, tableName));
+    }
+
+    const deltaLabel = deltaItems.map(i => `${i.itemName} ×${i.quantity}`).join(', ');
+    showToast(`KOT #${order.orderNumber} — ${deltaLabel}`, 'success');
 
     // Reset order
     resetOrderAndUI();
