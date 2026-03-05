@@ -363,8 +363,18 @@ function showPurchaseForm(container) {
     }
   }
 
+  // Reverse-calculate: Total Cost / Qty = Cost/Unit
+  function autoCalcUnitCost() {
+    const qty = parseFloat(document.getElementById('modal-pur-qty')?.value) || 0;
+    const cost = parseFloat(document.getElementById('modal-pur-cost')?.value) || 0;
+    if (qty > 0 && cost > 0) {
+      document.getElementById('modal-pur-unit-cost').value = (cost / qty).toFixed(2);
+    }
+  }
+
   document.getElementById('modal-pur-qty')?.addEventListener('input', autoCalcTotal);
   document.getElementById('modal-pur-unit-cost')?.addEventListener('input', autoCalcTotal);
+  document.getElementById('modal-pur-cost')?.addEventListener('input', autoCalcUnitCost);
 
   document.getElementById('modal-pur-save')?.addEventListener('click', async () => {
     const supplierId = document.getElementById('modal-pur-supplier').value;
