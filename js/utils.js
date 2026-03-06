@@ -117,11 +117,19 @@ export function closeModal() {
 }
 
 // Print Helpers
-export function printContent(html) {
+export function printContent(html, type = 'roll') {
   const container = document.getElementById('print-container');
+  if (type === 'a4') {
+    container.classList.add('print-a4');
+  } else {
+    container.classList.remove('print-a4');
+  }
   container.innerHTML = html;
   window.print();
-  setTimeout(() => { container.innerHTML = ''; }, 1000);
+  setTimeout(() => {
+    container.innerHTML = '';
+    container.classList.remove('print-a4');
+  }, 1000);
 }
 
 export function generateKOTPrintHTML(order, supplierName, tableName) {
@@ -251,3 +259,44 @@ export function generateWaiterIncentivePrintHTML(waiterData, dateStr) {
     </div>
   `;
 }
+
+export function generateStockPrintHTML(ingredients) {
+  const d = new Date();
+  const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
+  const itemsHTML = ingredients.map((item) => `
+    <tr>
+      <td>${item.name}</td>
+      <td style="text-align:center;">${item.currentStock || 0} ${item.unit}</td>
+      <td style="text-align:right;">${item.currentStock || 0} ${item.unit}</td>
+      <td style="text-align:right;">______________</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="print-header">
+      <h2>STOCK CHECKLIST</h2>
+    </div>
+    <div class="print-meta" style="margin-bottom: 20px;">
+      <div><span>Date:</span><span>${dateStr}</span></div>
+    </div>
+    <table class="print-items" style="width:100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th style="width:40%; text-align: left;">Item</th>
+          <th style="text-align:center;width:20%">System Stock</th>
+          <th style="text-align:right;width:20%">Opening Stock</th>
+          <th style="text-align:right;width:20%">Closing Actual</th>
+        </tr>
+      </thead>
+      <tbody>${itemsHTML}</tbody>
+    </table>
+    <div style="margin-top:20px; font-weight:normal;">
+      <b>Instructions:</b> Opening stock is prefilled from system records. Write down the Closing Actual stock for cross-checking.
+    </div>
+    <div class="print-footer">
+      <p>--- End of Checklist ---</p>
+    </div>
+  `;
+}
+

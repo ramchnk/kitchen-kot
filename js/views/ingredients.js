@@ -1,11 +1,11 @@
 // ===== Ingredients Master View =====
 import { DB } from '../db.js';
-import { showToast, showModal, closeModal } from '../utils.js';
+import { showToast, showModal, closeModal, printContent, generateStockPrintHTML } from '../utils.js';
 
 export async function renderIngredientsView(container) {
-    const ingredients = await DB.getAll('ingredients');
+  const ingredients = await DB.getAll('ingredients');
 
-    container.innerHTML = `
+  container.innerHTML = `
     <div class="view-header">
       <div class="view-header-left">
         <span class="material-symbols-outlined view-header-icon">egg</span>
@@ -19,6 +19,9 @@ export async function renderIngredientsView(container) {
           <span class="material-symbols-outlined">search</span>
           <input type="text" class="form-input" id="ingredient-filter" placeholder="Filter...">
         </div>
+        <button class="btn btn-secondary" id="btn-print-stock" title="Print Stock Checklist">
+          <span class="material-symbols-outlined">print</span> Print
+        </button>
         <button class="btn btn-primary" id="btn-add-ingredient">
           <span class="material-symbols-outlined">add</span> Add Ingredient
         </button>
@@ -44,24 +47,31 @@ export async function renderIngredientsView(container) {
     </div>
   `;
 
-    // Filter
-    document.getElementById('ingredient-filter')?.addEventListener('input', (e) => {
-        const q = e.target.value.toLowerCase();
-        const filtered = ingredients.filter(i => i.name.toLowerCase().includes(q));
-        document.getElementById('ingredients-tbody').innerHTML = renderIngRows(filtered);
-        attachActions(container);
-    });
-
-    document.getElementById('btn-add-ingredient')?.addEventListener('click', () => showIngForm(null, container));
-
+  // Filter
+  document.getElementById('ingredient-filter')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    const filtered = ingredients.filter(i => i.name.toLowerCase().includes(q));
+    document.getElementById('ingredients-tbody').innerHTML = renderIngRows(filtered);
     attachActions(container);
+  });
+
+  document.getElementById('btn-add-ingredient')?.addEventListener('click', () => showIngForm(null, container));
+
+  document.getElementById('btn-print-stock')?.addEventListener('click', () => {
+    // Only print active ingredients by default for stock taking? Or let's print all
+    const activeIngs = ingredients.filter(i => i.active !== false);
+    const html = generateStockPrintHTML(activeIngs);
+    printContent(html, 'a4');
+  });
+
+  attachActions(container);
 }
 
 function renderIngRows(ingredients) {
-    if (ingredients.length === 0)
-        return '<tr><td colspan="6"><div class="empty-state"><span class="material-symbols-outlined">egg</span><p>No ingredients found</p></div></td></tr>';
+  if (ingredients.length === 0)
+    return '<tr><td colspan="6"><div class="empty-state"><span class="material-symbols-outlined">egg</span><p>No ingredients found</p></div></td></tr>';
 
-    return ingredients.map(ing => `
+  return ingredients.map(ing => `
     <tr>
       <td class="text-muted">${ing.id}</td>
       <td><strong>${ing.name}</strong></td>
@@ -79,30 +89,30 @@ function renderIngRows(ingredients) {
 }
 
 function attachActions(container) {
-    container.querySelectorAll('.btn-edit-ing').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const ing = await DB.getById('ingredients', parseInt(btn.dataset.id));
-            if (ing) showIngForm(ing, container);
-        });
+  container.querySelectorAll('.btn-edit-ing').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ing = await DB.getById('ingredients', parseInt(btn.dataset.id));
+      if (ing) showIngForm(ing, container);
     });
+  });
 
-    container.querySelectorAll('.btn-del-ing').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const id = parseInt(btn.dataset.id);
-            const ing = await DB.getById('ingredients', id);
-            if (ing && confirm(`Delete "${ing.name}"?`)) {
-                await DB.remove('ingredients', id);
-                showToast(`"${ing.name}" deleted`, 'warning');
-                renderIngredientsView(container);
-            }
-        });
+  container.querySelectorAll('.btn-del-ing').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.id);
+      const ing = await DB.getById('ingredients', id);
+      if (ing && confirm(`Delete "${ing.name}"?`)) {
+        await DB.remove('ingredients', id);
+        showToast(`"${ing.name}" deleted`, 'warning');
+        renderIngredientsView(container);
+      }
     });
+  });
 }
 
 function showIngForm(ing, container) {
-    const isEdit = !!ing;
+  const isEdit = !!ing;
 
-    showModal(isEdit ? 'Edit Ingredient' : 'Add New Ingredient', `
+  showModal(isEdit ? 'Edit Ingredient' : 'Add New Ingredient', `
     <div class="form-group">
       <label class="form-label">Ingredient Name *</label>
       <input type="text" class="form-input" id="modal-ing-name" value="${ing?.name || ''}" placeholder="e.g. Chicken">
@@ -128,27 +138,27 @@ function showIngForm(ing, container) {
       <label for="modal-ing-active">Active</label>
     </div>
   `, {
-        footer: `
+    footer: `
       <button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Cancel</button>
       <button class="btn btn-primary" id="modal-ing-save"><span class="material-symbols-outlined">save</span> ${isEdit ? 'Update' : 'Save'}</button>
     `
-    });
+  });
 
-    document.getElementById('modal-ing-save')?.addEventListener('click', async () => {
-        const name = document.getElementById('modal-ing-name').value.trim();
-        if (!name) { showToast('Name is required', 'error'); return; }
+  document.getElementById('modal-ing-save')?.addEventListener('click', async () => {
+    const name = document.getElementById('modal-ing-name').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
 
-        const data = {
-            name,
-            unit: document.getElementById('modal-ing-unit').value,
-            currentStock: parseFloat(document.getElementById('modal-ing-stock').value) || 0,
-            active: document.getElementById('modal-ing-active').checked,
-        };
+    const data = {
+      name,
+      unit: document.getElementById('modal-ing-unit').value,
+      currentStock: parseFloat(document.getElementById('modal-ing-stock').value) || 0,
+      active: document.getElementById('modal-ing-active').checked,
+    };
 
-        if (isEdit) { data.id = ing.id; await DB.update('ingredients', data); showToast(`"${name}" updated`, 'success'); }
-        else { await DB.add('ingredients', data); showToast(`"${name}" added`, 'success'); }
+    if (isEdit) { data.id = ing.id; await DB.update('ingredients', data); showToast(`"${name}" updated`, 'success'); }
+    else { await DB.add('ingredients', data); showToast(`"${name}" added`, 'success'); }
 
-        closeModal();
-        renderIngredientsView(container);
-    });
+    closeModal();
+    renderIngredientsView(container);
+  });
 }
