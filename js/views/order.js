@@ -21,8 +21,20 @@ function resetOrder() {
   orderState = { supplierId: null, tableId: null, items: [], editingOrderId: null };
 }
 
+function calculateTotals() {
+  const subTotal = orderState.items.reduce((sum, item) => sum + item.amount, 0);
+  let acCharge = 0;
+  if (orderState.tableId) {
+    const table = tables.find(t => t.id === orderState.tableId);
+    if (table && table.name.trim().toUpperCase().startsWith('AC')) {
+      acCharge = subTotal * 0.10;
+    }
+  }
+  return { subTotal, acCharge, totalAmount: subTotal + acCharge };
+}
+
 function calculateTotal() {
-  return orderState.items.reduce((sum, item) => sum + item.amount, 0);
+  return calculateTotals().totalAmount;
 }
 
 export async function renderOrderView(container) {
@@ -155,6 +167,10 @@ export async function renderOrderView(container) {
           <div class="summary-row">
             <span class="summary-label">Total Quantity</span>
             <span class="summary-value" id="summary-total-qty">0</span>
+          </div>
+          <div class="summary-row" id="summary-ac-row" style="display:none">
+            <span class="summary-label">AC Charge (10%)</span>
+            <span class="summary-value" id="summary-ac-charge">${formatCurrency(0)}</span>
           </div>
           <div class="summary-row total">
             <span class="summary-label" style="font-size:1rem;font-weight:600;color:var(--text-primary)">Total Amount</span>
@@ -588,12 +604,25 @@ function renderOrderItems() {
 }
 
 function updateSummary() {
-  const total = calculateTotal();
+  const totals = calculateTotals();
   const totalQty = orderState.items.reduce((s, i) => s + i.quantity, 0);
   const el = (id) => document.getElementById(id);
+
   if (el('summary-items-count')) el('summary-items-count').textContent = orderState.items.length;
   if (el('summary-total-qty')) el('summary-total-qty').textContent = totalQty;
-  if (el('summary-total-amount')) el('summary-total-amount').textContent = formatCurrency(total);
+
+  const acRow = el('summary-ac-row');
+  if (acRow) {
+    if (totals.acCharge > 0) {
+      acRow.style.display = '';
+      if (el('summary-ac-charge')) el('summary-ac-charge').textContent = formatCurrency(totals.acCharge);
+    } else {
+      acRow.style.display = 'none';
+      if (el('summary-ac-charge')) el('summary-ac-charge').textContent = formatCurrency(0);
+    }
+  }
+
+  if (el('summary-total-amount')) el('summary-total-amount').textContent = formatCurrency(totals.totalAmount);
 }
 
 function setupOrderShortcuts() {
@@ -638,7 +667,10 @@ async function handleKOT() {
       // Update kotPrintedQty to current quantity for all items
       const updatedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
       order.items = updatedItems;
-      order.totalAmount = calculateTotal();
+      const totals = calculateTotals();
+      order.subTotal = totals.subTotal;
+      order.acCharge = totals.acCharge;
+      order.totalAmount = totals.totalAmount;
       order.supplierId = orderState.supplierId;
       order.tableId = orderState.tableId;
       await DB.update('orders', order);
@@ -648,12 +680,15 @@ async function handleKOT() {
       // Create new order — all items are new, set kotPrintedQty = quantity
       const orderNumber = await DB.getNextOrderNumber();
       const savedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
+      const totals = calculateTotals();
       order = {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
         items: savedItems,
-        totalAmount: calculateTotal(),
+        subTotal: totals.subTotal,
+        acCharge: totals.acCharge,
+        totalAmount: totals.totalAmount,
         status: 'open',
         type: 'kot',
         createdAt: new Date().toISOString(),
@@ -713,7 +748,10 @@ async function handleBill() {
       // Update existing order → mark as billed
       order = await DB.getById('orders', orderState.editingOrderId);
       order.items = [...orderState.items];
-      order.totalAmount = calculateTotal();
+      const totals = calculateTotals();
+      order.subTotal = totals.subTotal;
+      order.acCharge = totals.acCharge;
+      order.totalAmount = totals.totalAmount;
       order.supplierId = orderState.supplierId;
       order.tableId = orderState.tableId;
       order.status = 'billed';
@@ -723,12 +761,15 @@ async function handleBill() {
     } else {
       // Create new billed order
       const orderNumber = await DB.getNextOrderNumber();
+      const totals = calculateTotals();
       order = {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
         items: [...orderState.items],
-        totalAmount: calculateTotal(),
+        subTotal: totals.subTotal,
+        acCharge: totals.acCharge,
+        totalAmount: totals.totalAmount,
         status: 'billed',
         type: 'bill',
         createdAt: now,
@@ -769,7 +810,10 @@ async function handleSaveOrder() {
       // Update existing order
       order = await DB.getById('orders', orderState.editingOrderId);
       order.items = [...orderState.items];
-      order.totalAmount = calculateTotal();
+      const totals = calculateTotals();
+      order.subTotal = totals.subTotal;
+      order.acCharge = totals.acCharge;
+      order.totalAmount = totals.totalAmount;
       order.supplierId = orderState.supplierId;
       order.tableId = orderState.tableId;
       await DB.update('orders', order);
@@ -777,12 +821,15 @@ async function handleSaveOrder() {
     } else {
       // Create new saved order
       const orderNumber = await DB.getNextOrderNumber();
+      const totals = calculateTotals();
       order = {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
         items: [...orderState.items],
-        totalAmount: calculateTotal(),
+        subTotal: totals.subTotal,
+        acCharge: totals.acCharge,
+        totalAmount: totals.totalAmount,
         status: 'open',
         type: 'saved',
         createdAt: new Date().toISOString(),
