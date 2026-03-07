@@ -73,7 +73,7 @@ async function authenticate(email, password) {
 }
 
 // ---- Fetch Liquor Products ----
-async function fetchProducts() {
+async function fetchProducts(isBackground = false) {
     // Try to restore token if not available
     if (!liquorToken) {
         const restored = await restoreAndAuth();
@@ -99,7 +99,7 @@ async function fetchProducts() {
             sessionStorage.removeItem(STORAGE_KEY_TOKEN);
             const reAuthed = await restoreAndAuth();
             if (reAuthed) {
-                return await fetchProducts(); // Retry with new token
+                return await fetchProducts(isBackground); // Retry with new token
             }
             return [];
         }
@@ -125,12 +125,25 @@ async function fetchProducts() {
             purchaseStock: p.purchaseStock || 0,
             sku: p.SKU,
             brand: p.brand,
+            upc: p.UPC,
+            code: p.UPC, // Map UPC to code for easy searching/scanning
             incentivePercent: 0,
             active: true,
             isLiquor: true,
         }));
 
-        console.log(`Loaded ${liquorProducts.length} liquor products`);
+        // Persist to local storage for fast loading next time (scoped by account)
+        const accountId = sessionStorage.getItem(STORAGE_KEY_CREDS) ? JSON.parse(sessionStorage.getItem(STORAGE_KEY_CREDS)).email : 'default';
+        localStorage.setItem(`cached_liquor_products_${accountId}`, JSON.stringify(liquorProducts));
+        localStorage.setItem(`cached_liquor_timestamp_${accountId}`, Date.now().toString());
+
+        console.log(`Loaded ${liquorProducts.length} liquor products from API`);
+
+        // Notify listeners if this was a background refresh
+        if (isBackground && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('liquor-data-refreshed', { detail: liquorProducts }));
+        }
+
         return liquorProducts;
     } catch (err) {
         console.warn('Liquor products fetch error:', err.message);
@@ -147,15 +160,36 @@ async function initialize(email, password) {
     return liquorEnabled;
 }
 
-// ---- Ensure Ready (call from order page) ----
-// Guarantees liquor products are loaded if the account has liquor enabled
+// Loads from local cache immediately, then triggers background fetch
 async function ensureReady() {
+    // 1. Try memory
     if (liquorProducts.length > 0) {
-        // Already have products, just re-fetch for latest stock
-        await fetchProducts();
+        // Already loaded, just refresh in background
+        fetchProducts(true);
         return true;
     }
-    // No products yet — try to restore and fetch
+
+    // 2. Try Local Storage Cache (check current session's user)
+    const creds = sessionStorage.getItem(STORAGE_KEY_CREDS);
+    let accountId = 'default';
+    if (creds) {
+        try { accountId = JSON.parse(creds).email; } catch (e) { }
+    }
+
+    const cached = localStorage.getItem(`cached_liquor_products_${accountId}`);
+    if (cached) {
+        try {
+            liquorProducts = JSON.parse(cached);
+            console.log(`Restored ${liquorProducts.length} liquor products from local cache`);
+            // Trigger background fetch to update
+            fetchProducts(true);
+            return true;
+        } catch (e) {
+            console.warn('Failed to parse cached liquor products', e);
+        }
+    }
+
+    // 3. No cache, must wait for initial fetch
     const ready = await restoreAndAuth();
     if (ready) {
         await fetchProducts();
@@ -171,6 +205,14 @@ function getToken() { return liquorToken; }
 
 // ---- Reset ----
 function reset() {
+    const creds = sessionStorage.getItem(STORAGE_KEY_CREDS);
+    if (creds) {
+        try {
+            const accountId = JSON.parse(creds).email;
+            localStorage.removeItem(`cached_liquor_products_${accountId}`);
+            localStorage.removeItem(`cached_liquor_timestamp_${accountId}`);
+        } catch (e) { }
+    }
     liquorToken = null;
     liquorProducts = [];
     liquorEnabled = false;

@@ -49,10 +49,16 @@ export async function renderOrderView(container) {
   // Always load liquor items if account has liquor enabled
   const account = Auth.getCurrentAccount();
   if (account?.isLiquorEnabled) {
-    await LiquorApi.ensureReady();
-    const liquorItems = LiquorApi.getProducts();
-    if (liquorItems.length > 0) {
-      menuItems = [...menuItems, ...liquorItems];
+    try {
+      console.log('Liquor enabled, ensuring ready...');
+      await LiquorApi.ensureReady();
+      const liquorItems = LiquorApi.getProducts();
+      console.log(`Adding ${liquorItems.length} liquor items to menu`);
+      if (liquorItems.length > 0) {
+        menuItems = [...menuItems, ...liquorItems];
+      }
+    } catch (e) {
+      console.error('Error loading liquor products:', e);
     }
   }
 
@@ -257,6 +263,23 @@ function setupOrderEvents() {
 
   // Save button
   document.getElementById('btn-save-order')?.addEventListener('click', handleSaveOrder);
+
+  // Listen for background liquor refreshes
+  if (!window._liquorRefreshHandler) {
+    window._liquorRefreshHandler = (e) => {
+      const updatedLiquor = e.detail;
+      if (!updatedLiquor || !Array.isArray(updatedLiquor)) return;
+
+      // Update global menuItems: remove old liquor, add fresh
+      const foodItems = menuItems.filter(i => !i.isLiquor);
+      menuItems = [...foodItems, ...updatedLiquor];
+      console.log(`Menu items updated with ${updatedLiquor.length} fresh liquor products`);
+    };
+    window.addEventListener('liquor-data-refreshed', window._liquorRefreshHandler);
+  }
+
+  // Clean up listener when container is cleared (optional but good practice)
+  // For this simple SPA, we'll just let it overwrite or add a check
 }
 
 function setupSearchDropdown(inputId, dropdownId, hiddenId, data, labelFn, valueFn, onSelect, nextFocusId, renderItemFn, filterFn) {
@@ -366,13 +389,36 @@ function setupItemSearch() {
   input.addEventListener('input', () => {
     const query = input.value.toLowerCase().trim();
     if (query.length === 0) {
-      filtered = excludeOutOfStockLiquor(menuItems).slice(0, 15);
+      // Show mix of food and liquor in initial list
+      const food = menuItems.filter(i => !i.isLiquor).slice(0, 10);
+      const liquor = menuItems.filter(i => i.isLiquor && (i.currentStock || 0) > 0).slice(0, 10);
+      filtered = [...food, ...liquor];
     } else {
       filtered = excludeOutOfStockLiquor(menuItems).filter(item =>
         item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
+        (item.category || '').toLowerCase().includes(query) ||
+        (item.brand || '').toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
       );
+
+      // Barcode Scanner Logic: 
+      // If the query exactly matches an item's code/UPC, auto-select it
+      if (query.length >= 8) {
+        // Search in ALL items to allow finding out-of-stock items via barcode
+        const exactMatch = menuItems.find(item => (item.code || '').toLowerCase() === query);
+        if (exactMatch) {
+          if (!filtered.includes(exactMatch)) {
+            filtered = [exactMatch, ...filtered];
+          }
+          const selectIdx = filtered.indexOf(exactMatch);
+          input.dataset.selectedIdx = selectIdx;
+          dropdown.classList.remove('visible');
+          const qtyEl = document.getElementById('item-qty');
+          qtyEl?.focus();
+          qtyEl?.select();
+          console.log(`Barcode match found: ${exactMatch.name}`);
+        }
+      }
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
     renderItemDropdown();
@@ -381,11 +427,15 @@ function setupItemSearch() {
   input.addEventListener('focus', () => {
     const query = input.value.toLowerCase().trim();
     if (query.length === 0) {
-      filtered = excludeOutOfStockLiquor(menuItems).slice(0, 15);
+      // Show mix of food and liquor in initial list
+      const food = menuItems.filter(i => !i.isLiquor).slice(0, 10);
+      const liquor = menuItems.filter(i => i.isLiquor && (i.currentStock || 0) > 0).slice(0, 10);
+      filtered = [...food, ...liquor];
     } else {
       filtered = excludeOutOfStockLiquor(menuItems).filter(item =>
         item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
+        (item.category || '').toLowerCase().includes(query) ||
+        (item.brand || '').toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
       );
     }
@@ -456,12 +506,14 @@ function setupItemSearch() {
     } else {
       dropdown.innerHTML = filtered.map((item, i) =>
         `<div class="search-dropdown-item ${i === highlightIdx ? 'highlighted' : ''}" data-idx="${i}">
-          <div>
+          <div style="flex:1">
             ${item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.7rem;font-weight:700;margin-right:4px">${item.code}</code>` : ''}
-            <span>${item.name}</span>
-            <span class="item-category">${item.category}</span>
-            ${item.isLiquor ? `<span class="status-badge" style="background:#7c3aed20;color:#7c3aed;font-size:0.6rem;margin-left:4px">🍺 LIQUOR</span>
-            <span style="color:var(--text-muted);font-size:0.75rem;margin-left:4px">Stock: ${item.currentStock || 0}</span>` : ''}
+            <span style="font-weight:600">${item.name}</span>
+            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px">
+              ${item.category} ${item.brand ? `• ${item.brand}` : ''}
+              ${item.isLiquor ? `<span class="status-badge" style="background:#7c3aed20;color:#7c3aed;font-size:0.6rem;padding:1px 4px;margin-left:4px">🍺 LIQUOR</span>
+              <span style="margin-left:8px">Stock: <strong>${item.currentStock || 0}</strong></span>` : ''}
+            </div>
           </div>
           <span class="item-price">${formatCurrency(item.sellingPrice)}</span>
         </div>`
@@ -744,10 +796,23 @@ async function handleBill() {
     const now = new Date().toISOString();
     let order;
 
+    // 1. Identify unprinted items (delta)
+    const deltaItems = [];
+    for (const item of orderState.items) {
+      const printed = item.kotPrintedQty || 0;
+      const newQty = item.quantity - printed;
+      if (newQty > 0) {
+        deltaItems.push({ ...item, quantity: newQty });
+      }
+    }
+
+    // 2. Prepare order with updated kotPrintedQty
+    const finalizedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
+
     if (orderState.editingOrderId) {
       // Update existing order → mark as billed
       order = await DB.getById('orders', orderState.editingOrderId);
-      order.items = [...orderState.items];
+      order.items = finalizedItems;
       const totals = calculateTotals();
       order.subTotal = totals.subTotal;
       order.acCharge = totals.acCharge;
@@ -766,7 +831,7 @@ async function handleBill() {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
-        items: [...orderState.items],
+        items: finalizedItems,
         subTotal: totals.subTotal,
         acCharge: totals.acCharge,
         totalAmount: totals.totalAmount,
@@ -776,6 +841,23 @@ async function handleBill() {
         billedAt: now,
       };
       await DB.add('orders', order);
+    }
+
+    // 3. Print KOT if there were unprinted items
+    if (deltaItems.length > 0) {
+      const supplierName = suppliers.find(s => s.id === orderState.supplierId)?.name || '';
+      const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
+
+      const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
+      const counterItems = deltaItems.filter(item => isCounterItem(item));
+
+      if (kitchenItems.length > 0) {
+        const kitchenOrder = { ...order, items: kitchenItems };
+        printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
+      }
+      if (counterItems.length > 0) {
+        printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+      }
     }
 
     // Update ingredient stock (consumption)

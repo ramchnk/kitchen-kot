@@ -106,6 +106,14 @@ function onAuthChange(callback) {
                     const accountDoc = await getDoc(doc(firestore, 'accounts', currentUser.accountId));
                     if (accountDoc.exists()) {
                         currentAccount = { id: currentUser.accountId, ...accountDoc.data() };
+
+                        // Initialize liquor API if enabled (crucial for page refreshes)
+                        if (currentAccount.isLiquorEnabled) {
+                            // We don't have the password on refresh, but ensureReady will 
+                            // try to restore from sessionStorage/cache.
+                            // If we need to re-auth, ensureReady will handle it if creds exist.
+                            await LiquorApi.ensureReady();
+                        }
                     }
                 } else {
                     // Firebase auth user exists but no profile — sign out
