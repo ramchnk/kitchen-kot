@@ -38,6 +38,9 @@ export async function renderReportsView(container) {
       <button class="tab-btn" data-tab="product-stock">
         <span class="material-symbols-outlined" style="font-size:18px">local_drink</span> Product Stock
       </button>
+      <button class="tab-btn" data-tab="expenses">
+        <span class="material-symbols-outlined" style="font-size:18px">payments</span> Expense Report
+      </button>
     </div>
 
     <!-- Tab Contents -->
@@ -46,6 +49,7 @@ export async function renderReportsView(container) {
     <div class="tab-content" id="tab-consumption"></div>
     <div class="tab-content" id="tab-purchase"></div>
     <div class="tab-content" id="tab-product-stock"></div>
+    <div class="tab-content" id="tab-expenses"></div>
   `;
 
   // Tab switching
@@ -76,6 +80,7 @@ async function generateReports(container) {
   const allRecipes = await DB.getAll('itemIngredients');
   const purchases = await DB.getAll('purchases');
   const grocerySuppliers = await DB.getAll('grocerySuppliers');
+  const expenses = await DB.getAll('expenses');
 
   // Filter orders by date and billed status
   const dayOrders = orders.filter(o => {
@@ -94,6 +99,7 @@ async function generateReports(container) {
   generateConsumptionReport(container, dayOrders, allRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
   generateProductStockReport(dayOrders, purchases, items, dateStr);
+  generateExpenseReport(container, expenses, dateStr);
 }
 
 function generateSalesReport(container, orders, itemMap, dateStr) {
@@ -295,6 +301,96 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
       }
     });
   });
+}
+
+function generateExpenseReport(container, expenses, dateStr) {
+  const tab = document.getElementById('tab-expenses');
+  const dayExpenses = expenses.filter(e => e.date === dateStr);
+  const total = dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const categories = {};
+  dayExpenses.forEach(e => {
+    categories[e.category] = (categories[e.category] || 0) + Number(e.amount);
+  });
+
+  tab.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon red"><span class="material-symbols-outlined">payments</span></div>
+        <div><div class="stat-value">${formatCurrency(total)}</div><div class="stat-label">Total Expenses</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue"><span class="material-symbols-outlined">category</span></div>
+        <div><div class="stat-value">${Object.keys(categories).length}</div><div class="stat-label">Categories</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon orange"><span class="material-symbols-outlined">receipt_long</span></div>
+        <div><div class="stat-value">${dayExpenses.length}</div><div class="stat-label">Entries</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Daily Expenses — ${formatDate(dateStr)}</span>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th class="text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dayExpenses.length === 0 ?
+      '<tr><td colspan="4"><div class="empty-state" style="padding:30px"><p>No expenses recorded for this date</p></div></td></tr>' :
+      dayExpenses.map((e, i) => `
+              <tr>
+                <td class="text-muted">${i + 1}</td>
+                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${e.category}</span></td>
+                <td><strong>${e.description}</strong></td>
+                <td class="text-right amount font-mono">${formatCurrency(e.amount)}</td>
+              </tr>
+            `).join('')}
+        </tbody>
+        ${dayExpenses.length > 0 ? `
+          <tfoot>
+            <tr style="font-weight:700">
+              <td colspan="3" class="text-right">Total</td>
+              <td class="text-right amount total font-mono">${formatCurrency(total)}</td>
+            </tr>
+          </tfoot>
+        ` : ''}
+      </table>
+    </div>
+
+    ${Object.keys(categories).length > 0 ? `
+      <div class="card mt-2">
+        <div class="card-header">
+          <span class="card-title">Category Breakdown</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th class="text-right">Total Amount</th>
+              <th class="text-right">% of Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.entries(categories).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => `
+              <tr>
+                <td><strong>${cat}</strong></td>
+                <td class="text-right font-mono">${formatCurrency(amt)}</td>
+                <td class="text-right font-mono">${total > 0 ? ((amt / total) * 100).toFixed(1) : '0.0'}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
+  `;
 }
 
 function generateConsumptionReport(container, orders, allRecipes, ingredientMap, dateStr) {

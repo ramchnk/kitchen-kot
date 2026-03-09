@@ -195,6 +195,14 @@ async function seedDemoData() {
     { name: 'Local Vegetables', contact: '9876500003', address: 'Vegetable Market', gstNumber: '', active: true, createdAt: new Date().toISOString() },
   ];
   for (const gs of grocerySuppliers) await add('grocerySuppliers', gs);
+
+  // Seed sample expenses
+  const sampleExpenses = [
+    { category: 'Grocery', description: 'Monthly milk supply advance', amount: 2500, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() },
+    { category: 'Maintenance', description: 'AC Repairing charges', amount: 1200, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() },
+    { category: 'Salary', description: 'Part-time cleaning staff', amount: 3000, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() },
+  ];
+  for (const exp of sampleExpenses) await add('expenses', exp);
 }
 
 // ---- Export ----

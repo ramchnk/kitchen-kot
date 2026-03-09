@@ -14,6 +14,7 @@ import { renderTablesView } from './views/tables.js';
 import { renderPurchasesView } from './views/purchases.js';
 import { renderReportsView } from './views/reports.js';
 import { renderGrocerySuppliersView } from './views/grocerySuppliers.js';
+import { renderExpensesView } from './views/expenses.js';
 
 let currentView = null;
 let currentDestroy = null;
@@ -29,6 +30,7 @@ const routes = {
     'purchases': { render: renderPurchasesView },
     'reports': { render: renderReportsView },
     'grocery-suppliers': { render: renderGrocerySuppliersView },
+    'expenses': { render: renderExpensesView },
 };
 
 // Admin-only routes
@@ -82,6 +84,7 @@ function setupGlobalShortcuts() {
         ['alt+8', 'purchases'],
         ['alt+9', 'reports'],
         ['alt+0', 'grocery-suppliers'],
+        ['alt+e', 'expenses'],
     ];
 
     viewKeys.forEach(([key, view]) => {
