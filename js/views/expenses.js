@@ -1,5 +1,5 @@
-// ===== Expenses View =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { formatCurrency, formatDate, todayISO, showToast, showModal, closeModal, printContent } from '../utils.js';
 
 export async function renderExpensesView(container) {
@@ -43,18 +43,18 @@ export async function renderExpensesView(container) {
             <th>Category</th>
             <th>Description</th>
             <th class="text-right">Amount</th>
-            <th class="text-center">Actions</th>
+            ${Auth.isAdmin() ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody id="expenses-list">
-          <tr><td colspan="5" class="text-center p-4">Loading expenses...</td></tr>
+          <tr><td colspan="${Auth.isAdmin() ? 5 : 4}" class="text-center p-4">Loading expenses...</td></tr>
         </tbody>
       </table>
     </div>
   `;
 
     // Event Listeners
-    document.getElementById('btn-add-expense').onclick = () => showAddExpenseModal(container);
+    document.getElementById('btn-add-expense')?.addEventListener('click', () => showAddExpenseModal(container));
     document.getElementById('expense-filter-date').onchange = () => loadExpenses(container);
     document.getElementById('btn-print-expenses').onclick = () => printExpenseReport();
 
@@ -81,7 +81,7 @@ function renderExpensesList(container, expenses) {
     if (expenses.length === 0) {
         tbody.innerHTML = `
       <tr>
-        <td colspan="5">
+        <td colspan="${Auth.isAdmin() ? 5 : 4}">
           <div class="empty-state" style="padding:40px">
             <span class="material-symbols-outlined">payments</span>
             <p>No expenses recorded for this date.</p>
@@ -98,11 +98,13 @@ function renderExpensesList(container, expenses) {
       <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${e.category}</span></td>
       <td><strong>${e.description}</strong></td>
       <td class="text-right amount font-mono">${formatCurrency(e.amount)}</td>
+      ${Auth.isAdmin() ? `
       <td class="text-center">
         <button class="btn btn-sm btn-ghost btn-delete-expense" data-id="${e.id}" title="Delete">
           <span class="material-symbols-outlined" style="font-size:18px;color:var(--danger)">delete</span>
         </button>
       </td>
+      ` : ''}
     </tr>
   `).join('');
 
@@ -195,13 +197,17 @@ function showAddExpenseModal(container) {
         }
 
         try {
-            await DB.add('expenses', {
+            const expenseId = await DB.add('expenses', {
                 category,
                 description,
                 amount,
                 date,
                 createdAt: new Date().toISOString()
             });
+
+            // Record Wallet Transaction (Expense reduces wallet)
+            await DB.recordWalletTransaction('expense', amount, `Expense: ${category} - ${description}`, expenseId);
+
             showToast('Expense recorded!', 'success');
             closeModal();
             loadExpenses(container);

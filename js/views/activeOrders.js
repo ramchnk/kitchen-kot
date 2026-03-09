@@ -1,6 +1,6 @@
-// ===== Active Orders View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateBillPrintHTML } from '../utils.js';
+import { Auth } from '../auth.js';
+import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateBillPrintHTML, isCounterItem } from '../utils.js';
 
 export async function renderActiveOrdersView(container) {
   const orders = (await DB.getAll('orders'))
@@ -64,9 +64,11 @@ export async function renderActiveOrdersView(container) {
                     <button class="btn btn-sm btn-ghost btn-view-order" data-id="${order.id}" title="View Details">
                       <span class="material-symbols-outlined" style="font-size:16px">visibility</span>
                     </button>
+                    ${Auth.isAdmin() ? `
                     <button class="btn btn-sm btn-ghost text-danger btn-cancel-order" data-id="${order.id}" title="Cancel Order">
                       <span class="material-symbols-outlined" style="font-size:16px">cancel</span>
                     </button>
+                    ` : ''}
                   </div>
                 </td>
               </tr>
@@ -109,6 +111,19 @@ export async function renderActiveOrdersView(container) {
       const table = order.tableId ? tableMap[order.tableId] : 'N/A';
       const printHTML = generateBillPrintHTML(order, supplier, table);
       printContent(printHTML);
+
+      // Record Wallet Transaction (Income adds to wallet, excluding counter/liquor items)
+      const nonCounterSubtotal = order.items
+        .filter(item => !isCounterItem(item))
+        .reduce((sum, item) => sum + item.amount, 0);
+
+      if (nonCounterSubtotal > 0) {
+        const subTotal = order.subTotal || order.items.reduce((sum, item) => sum + item.amount, 0);
+        const acCharge = order.acCharge || 0;
+        const proportionalAc = subTotal > 0 ? (nonCounterSubtotal / subTotal) * acCharge : 0;
+        const walletAmount = nonCounterSubtotal + proportionalAc;
+        await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+      }
 
       showToast(`Order #${order.orderNumber} billed!`, 'success');
       renderActiveOrdersView(container);

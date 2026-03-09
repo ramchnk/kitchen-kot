@@ -1,5 +1,6 @@
 // ===== Item Master View =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { formatCurrency, showToast, showModal, closeModal } from '../utils.js';
 
 const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
@@ -27,9 +28,11 @@ export async function renderItemsView(container) {
           <span class="material-symbols-outlined">search</span>
           <input type="text" class="form-input" id="item-filter" placeholder="Filter items...">
         </div>
+        ${Auth.isAdmin() ? `
         <button class="btn btn-primary" id="btn-add-item">
           <span class="material-symbols-outlined">add</span> Add Item
         </button>
+        ` : ''}
       </div>
     </div>
 
@@ -45,11 +48,11 @@ export async function renderItemsView(container) {
             <th class="text-right">Stock</th>
             <th class="text-right">Incentive %</th>
             <th class="text-center">Status</th>
-            <th class="text-center">Actions</th>
+            ${Auth.isAdmin() ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody id="items-table-body">
-          ${renderItemRows(items)}
+          ${renderItemRows(items, Auth.isAdmin())}
         </tbody>
       </table>
     </div>
@@ -63,7 +66,7 @@ export async function renderItemsView(container) {
       i.category.toLowerCase().includes(query) ||
       (i.code || '').toLowerCase().includes(query)
     );
-    document.getElementById('items-table-body').innerHTML = renderItemRows(filtered);
+    document.getElementById('items-table-body').innerHTML = renderItemRows(filtered, Auth.isAdmin());
     attachItemActions(container, items, categories);
   });
 
@@ -75,9 +78,9 @@ export async function renderItemsView(container) {
   attachItemActions(container, items, categories);
 }
 
-function renderItemRows(items) {
+function renderItemRows(items, isAdmin) {
   if (items.length === 0) {
-    return '<tr><td colspan="9"><div class="empty-state"><span class="material-symbols-outlined">lunch_dining</span><p>No items found</p></div></td></tr>';
+    return `<tr><td colspan="${isAdmin ? 9 : 8}"><div class="empty-state"><span class="material-symbols-outlined">lunch_dining</span><p>No items found</p></div></td></tr>`;
   }
 
   return items.map(item => `
@@ -98,6 +101,7 @@ function renderItemRows(items) {
           ${item.active ? 'Active' : 'Inactive'}
         </span>
       </td>
+      ${isAdmin ? `
       <td class="text-center">
         <div style="display:flex;gap:4px;justify-content:center">
           <button class="btn btn-sm btn-ghost btn-edit-item" data-id="${item.id}" title="Edit">
@@ -108,6 +112,7 @@ function renderItemRows(items) {
           </button>
         </div>
       </td>
+      ` : ''}
     </tr>
   `).join('');
 }

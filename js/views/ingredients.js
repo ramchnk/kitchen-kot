@@ -1,5 +1,5 @@
-// ===== Ingredients Master View =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { showToast, showModal, closeModal, printContent, generateStockPrintHTML } from '../utils.js';
 
 export async function renderIngredientsView(container) {
@@ -22,9 +22,11 @@ export async function renderIngredientsView(container) {
         <button class="btn btn-secondary" id="btn-print-stock" title="Print Stock Checklist">
           <span class="material-symbols-outlined">print</span> Print
         </button>
+        ${Auth.isAdmin() ? `
         <button class="btn btn-primary" id="btn-add-ingredient">
           <span class="material-symbols-outlined">add</span> Add Ingredient
         </button>
+        ` : ''}
       </div>
     </div>
 
@@ -37,11 +39,11 @@ export async function renderIngredientsView(container) {
             <th>Unit</th>
             <th class="text-right">Current Stock</th>
             <th class="text-center">Status</th>
-            <th class="text-center">Actions</th>
+            ${Auth.isAdmin() ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody id="ingredients-tbody">
-          ${renderIngRows(ingredients)}
+          ${renderIngRows(ingredients, Auth.isAdmin())}
         </tbody>
       </table>
     </div>
@@ -51,7 +53,7 @@ export async function renderIngredientsView(container) {
   document.getElementById('ingredient-filter')?.addEventListener('input', (e) => {
     const q = e.target.value.toLowerCase();
     const filtered = ingredients.filter(i => i.name.toLowerCase().includes(q));
-    document.getElementById('ingredients-tbody').innerHTML = renderIngRows(filtered);
+    document.getElementById('ingredients-tbody').innerHTML = renderIngRows(filtered, Auth.isAdmin());
     attachActions(container);
   });
 
@@ -67,9 +69,9 @@ export async function renderIngredientsView(container) {
   attachActions(container);
 }
 
-function renderIngRows(ingredients) {
+function renderIngRows(ingredients, isAdmin) {
   if (ingredients.length === 0)
-    return '<tr><td colspan="6"><div class="empty-state"><span class="material-symbols-outlined">egg</span><p>No ingredients found</p></div></td></tr>';
+    return `<tr><td colspan="${isAdmin ? 6 : 5}"><div class="empty-state"><span class="material-symbols-outlined">egg</span><p>No ingredients found</p></div></td></tr>`;
 
   return ingredients.map(ing => `
     <tr>
@@ -78,12 +80,14 @@ function renderIngRows(ingredients) {
       <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${ing.unit}</span></td>
       <td class="text-right font-mono">${ing.currentStock ?? 0} ${ing.unit}</td>
       <td class="text-center"><span class="status-badge ${ing.active !== false ? 'status-active' : 'status-inactive'}">${ing.active !== false ? 'Active' : 'Inactive'}</span></td>
+      ${isAdmin ? `
       <td class="text-center">
         <div style="display:flex;gap:4px;justify-content:center">
           <button class="btn btn-sm btn-ghost btn-edit-ing" data-id="${ing.id}"><span class="material-symbols-outlined" style="font-size:16px">edit</span></button>
           <button class="btn btn-sm btn-ghost text-danger btn-del-ing" data-id="${ing.id}"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button>
         </div>
       </td>
+      ` : ''}
     </tr>
   `).join('');
 }

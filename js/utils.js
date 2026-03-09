@@ -300,3 +300,8 @@ export function generateStockPrintHTML(ingredients) {
   `;
 }
 
+
+export function isCounterItem(item) {
+  const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE'];
+  return COUNTER_CATEGORIES.includes((item.category || '').toUpperCase());
+}

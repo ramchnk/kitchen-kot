@@ -219,4 +219,15 @@ export const DB = {
   clearStore,
   getNextOrderNumber,
   seedDemoData,
+  recordWalletTransaction: async (type, amount, description, sourceId = null) => {
+    const transaction = {
+      type, // 'income', 'expense', 'purchase', 'withdrawal'
+      amount: Number(amount),
+      description,
+      sourceId: String(sourceId),
+      date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString()
+    };
+    return await add('walletTransactions', transaction);
+  }
 };

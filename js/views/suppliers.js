@@ -1,9 +1,11 @@
 // ===== Waiters Master View =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderSuppliersView(container) {
   const suppliers = await DB.getAll('suppliers');
+  const isAdmin = Auth.isAdmin();
 
   container.innerHTML = `
     <div class="view-header">
@@ -14,9 +16,11 @@ export async function renderSuppliersView(container) {
           <p class="view-subtitle">${suppliers.length} waiter(s)</p>
         </div>
       </div>
+      ${isAdmin ? `
       <button class="btn btn-primary" id="btn-add-supplier">
         <span class="material-symbols-outlined">add</span> Add Waiter
       </button>
+      ` : ''}
     </div>
 
     <div class="card">
@@ -29,12 +33,12 @@ export async function renderSuppliersView(container) {
             <th>Contact</th>
             <th class="text-center">Incentive Tracking</th>
             <th class="text-center">Status</th>
-            <th class="text-center">Actions</th>
+            ${isAdmin ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody>
           ${suppliers.length === 0 ? `
-            <tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">badge</span><p>No waiters added yet</p></div></td></tr>
+            <tr><td colspan="${isAdmin ? 7 : 6}"><div class="empty-state"><span class="material-symbols-outlined">badge</span><p>No waiters added yet</p></div></td></tr>
           ` : suppliers.map(s => `
             <tr>
               <td class="text-muted">${s.id}</td>
@@ -51,6 +55,7 @@ export async function renderSuppliersView(container) {
                   ${s.active ? 'Active' : 'Inactive'}
                 </span>
               </td>
+              ${isAdmin ? `
               <td class="text-center">
                 <div style="display:flex;gap:4px;justify-content:center">
                   <button class="btn btn-sm btn-ghost btn-edit-supplier" data-id="${s.id}">
@@ -61,6 +66,7 @@ export async function renderSuppliersView(container) {
                   </button>
                 </div>
               </td>
+              ` : ''}
             </tr>
           `).join('')}
         </tbody>

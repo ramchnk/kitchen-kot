@@ -1,5 +1,5 @@
-// ===== Grocery Suppliers View (Material/Vendor Management) =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { formatCurrency, formatDate, formatDateTime, showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderGrocerySuppliersView(container) {
@@ -31,9 +31,11 @@ export async function renderGrocerySuppliersView(container) {
         </div>
       </div>
       <div style="display:flex;gap:8px">
+        ${Auth.isAdmin() ? `
         <button class="btn btn-primary" id="btn-add-gsupplier">
           <span class="material-symbols-outlined">add</span> Add Supplier
         </button>
+        ` : ''}
       </div>
     </div>
 
@@ -92,12 +94,14 @@ export async function renderGrocerySuppliersView(container) {
                   <button class="btn btn-sm btn-ghost btn-view-ledger" data-id="${s.id}" title="View Ledger">
                     <span class="material-symbols-outlined" style="font-size:14px">account_balance</span>
                   </button>
+                  ${Auth.isAdmin() ? `
                   <button class="btn btn-sm btn-ghost btn-edit-gsupplier" data-id="${s.id}" title="Edit">
                     <span class="material-symbols-outlined" style="font-size:14px">edit</span>
                   </button>
                   <button class="btn btn-sm btn-ghost text-danger btn-delete-gsupplier" data-id="${s.id}" title="Delete">
                     <span class="material-symbols-outlined" style="font-size:14px">delete</span>
                   </button>
+                  ` : ''}
                 </div>
               </td>
             </tr>
@@ -332,7 +336,11 @@ function showPaymentForm(supplier, outstanding, container) {
       createdAt: new Date().toISOString(),
     };
 
-    await DB.add('supplierPayments', payment);
+    const paymentId = await DB.add('supplierPayments', payment);
+
+    // Record Wallet Transaction (Payment reduces wallet)
+    await DB.recordWalletTransaction('purchase', amount, `Supplier Payment: ${supplier.name} (${payment.paymentMode.toUpperCase()})`, paymentId);
+
     showToast(`Payment of ${formatCurrency(amount)} recorded for ${supplier.name}`, 'success');
     closeModal();
     renderGrocerySuppliersView(container);

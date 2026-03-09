@@ -1,5 +1,5 @@
-// ===== Recipes (Ingredient Mapping) View =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderRecipesView(container) {
@@ -8,6 +8,7 @@ export async function renderRecipesView(container) {
   const ingredients = await DB.getAll('ingredients');
   const allRecipes = await DB.getAll('itemIngredients');
   const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
+  const isAdmin = Auth.isAdmin();
 
   // Group recipes by itemId
   const recipesByItem = {};
@@ -43,9 +44,11 @@ export async function renderRecipesView(container) {
                 <span class="status-badge" style="margin-left:8px;background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span>
                 <span class="text-muted" style="margin-left:8px;font-size:0.78rem">${recipes.length} ingredient(s)</span>
               </div>
+              ${isAdmin ? `
               <button class="btn btn-sm btn-primary btn-add-recipe" data-item-id="${item.id}">
                 <span class="material-symbols-outlined" style="font-size:16px">add</span> Add Ingredient
               </button>
+              ` : ''}
             </div>
             ${recipes.length > 0 ? `
               <table class="data-table" style="margin-top:8px">
@@ -54,7 +57,7 @@ export async function renderRecipesView(container) {
                     <th>Ingredient</th>
                     <th>Quantity</th>
                     <th>Unit</th>
-                    <th class="text-center" style="width:60px">Remove</th>
+                    ${isAdmin ? '<th class="text-center" style="width:60px">Remove</th>' : ''}
                   </tr>
                 </thead>
                 <tbody>
@@ -65,11 +68,13 @@ export async function renderRecipesView(container) {
                         <td><strong>${ing?.name || 'Unknown'}</strong></td>
                         <td class="font-mono">${r.quantity}</td>
                         <td>${ing?.unit || '—'}</td>
+                        ${isAdmin ? `
                         <td class="text-center">
                           <button class="btn btn-sm btn-ghost text-danger btn-del-recipe" data-id="${r.id}">
                             <span class="material-symbols-outlined" style="font-size:16px">close</span>
                           </button>
                         </td>
+                        ` : ''}
                       </tr>
                     `;
     }).join('')}

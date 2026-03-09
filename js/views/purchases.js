@@ -1,5 +1,5 @@
-// ===== Purchase Entry View (Multi-Item per Supplier) =====
 import { DB } from '../db.js';
+import { Auth } from '../auth.js';
 import { formatCurrency, formatDate, showToast, showModal, closeModal, todayISO } from '../utils.js';
 
 // Categories that are direct-purchase products (no ingredients)
@@ -113,9 +113,11 @@ export async function renderPurchasesView(container) {
                     <button class="btn btn-sm btn-ghost btn-view-purchase" data-batch='${JSON.stringify(batch.items.map(p => p.id))}' title="View Details">
                       <span class="material-symbols-outlined" style="font-size:16px">visibility</span>
                     </button>
+                    ${Auth.isAdmin() ? `
                     <button class="btn btn-sm btn-ghost text-danger btn-del-batch" data-batch='${JSON.stringify(batch.items.map(p => p.id))}' title="Delete Purchase">
                       <span class="material-symbols-outlined" style="font-size:16px">delete</span>
                     </button>
+                    ` : ''}
                   </div>
                 </td>
               </tr>
@@ -422,6 +424,12 @@ function showPurchaseForm(container) {
     }
 
     const totalCost = purchaseItems.reduce((s, i) => s + i.cost, 0);
+
+    // Record Wallet Transaction if Cash
+    if (paymentType === 'cash') {
+      const itemSummary = purchaseItems.map(i => i.itemName).join(', ');
+      await DB.recordWalletTransaction('purchase', totalCost, `Cash Purchase: ${itemSummary}`, batchId);
+    }
 
     // If credit purchase, create a supplier bill for outstanding tracking
     if (paymentType === 'credit') {

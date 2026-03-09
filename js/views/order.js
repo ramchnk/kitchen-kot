@@ -1,6 +1,6 @@
 // ===== Order Entry View (Keyboard-First POS) =====
 import { DB } from '../db.js';
-import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO } from '../utils.js';
+import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO, isCounterItem } from '../utils.js';
 import { registerShortcut, unregisterShortcut } from '../keyboard.js';
 import { LiquorApi } from '../liquorApi.js';
 import { Auth } from '../auth.js';
@@ -399,7 +399,21 @@ function setupItemSearch() {
         (item.category || '').toLowerCase().includes(query) ||
         (item.brand || '').toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
-      );
+      ).sort((a, b) => {
+        const codeA = String(a.code || '');
+        const codeB = String(b.code || '');
+        if (codeA.toLowerCase() === query && codeB.toLowerCase() !== query) return -1;
+        if (codeB.toLowerCase() === query && codeA.toLowerCase() !== query) return 1;
+        if (codeA && codeB) {
+          const numA = parseInt(codeA);
+          const numB = parseInt(codeB);
+          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return codeA.localeCompare(codeB, undefined, { numeric: true });
+        }
+        if (codeA) return -1;
+        if (codeB) return 1;
+        return a.name.localeCompare(b.name);
+      });
 
       // Barcode Scanner Logic: 
       // If the query exactly matches an item's code/UPC, auto-select it
@@ -437,7 +451,21 @@ function setupItemSearch() {
         (item.category || '').toLowerCase().includes(query) ||
         (item.brand || '').toLowerCase().includes(query) ||
         (item.code || '').toLowerCase().includes(query)
-      );
+      ).sort((a, b) => {
+        const codeA = String(a.code || '');
+        const codeB = String(b.code || '');
+        if (codeA.toLowerCase() === query && codeB.toLowerCase() !== query) return -1;
+        if (codeB.toLowerCase() === query && codeA.toLowerCase() !== query) return 1;
+        if (codeA && codeB) {
+          const numA = parseInt(codeA);
+          const numB = parseInt(codeB);
+          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+          return codeA.localeCompare(codeB, undefined, { numeric: true });
+        }
+        if (codeA) return -1;
+        if (codeB) return 1;
+        return a.name.localeCompare(b.name);
+      });
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
     renderItemDropdown();
@@ -683,12 +711,6 @@ function setupOrderShortcuts() {
   registerShortcut('ctrl+s', handleSaveOrder, 'Save Order');
 }
 
-// Categories that go to the counter (not kitchen)
-const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE'];
-
-function isCounterItem(item) {
-  return COUNTER_CATEGORIES.includes((item.category || '').toUpperCase());
-}
 
 async function handleKOT() {
   if (orderState.items.length === 0) {
@@ -869,6 +891,18 @@ async function handleBill() {
     // Print Bill
     const printHTML = generateBillPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
     printContent(printHTML);
+
+    // Record Wallet Transaction (Income adds to wallet, excluding counter/liquor items)
+    const nonCounterSubtotal = finalizedItems
+      .filter(item => !isCounterItem(item))
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    if (nonCounterSubtotal > 0) {
+      const totals = calculateTotals();
+      const proportionalAc = totals.subTotal > 0 ? (nonCounterSubtotal / totals.subTotal) * totals.acCharge : 0;
+      const walletAmount = nonCounterSubtotal + proportionalAc;
+      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+    }
 
     showToast(`Bill #${order.orderNumber} generated!`, 'success');
 

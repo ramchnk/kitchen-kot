@@ -15,6 +15,7 @@ import { renderPurchasesView } from './views/purchases.js';
 import { renderReportsView } from './views/reports.js';
 import { renderGrocerySuppliersView } from './views/grocerySuppliers.js';
 import { renderExpensesView } from './views/expenses.js';
+import { renderWalletView } from './views/wallet.js';
 
 let currentView = null;
 let currentDestroy = null;
@@ -31,6 +32,7 @@ const routes = {
     'reports': { render: renderReportsView },
     'grocery-suppliers': { render: renderGrocerySuppliersView },
     'expenses': { render: renderExpensesView },
+    'wallet': { render: renderWalletView },
 };
 
 // Admin-only routes
@@ -43,11 +45,12 @@ async function navigate(viewName) {
     const route = routes[viewName];
     if (!route) viewName = 'orders';
 
-    // Block salesman from admin-only routes
+    /* Block salesman from admin-only routes (Disabled as per new client request: salesman can view all pages)
     const role = Auth.getUserRole();
     if (role === 'salesman' && adminOnlyRoutes.has(viewName)) {
         viewName = 'orders';
     }
+    */
 
     currentView = viewName;
     const container = document.getElementById('view-container');
@@ -85,6 +88,7 @@ function setupGlobalShortcuts() {
         ['alt+9', 'reports'],
         ['alt+0', 'grocery-suppliers'],
         ['alt+e', 'expenses'],
+        ['alt+w', 'wallet'],
     ];
 
     viewKeys.forEach(([key, view]) => {
