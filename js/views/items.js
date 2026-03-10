@@ -42,6 +42,7 @@ export async function renderItemsView(container) {
           <tr>
             <th>ID</th>
             <th>Code</th>
+            <th>Bar Code</th>
             <th>Item Name</th>
             <th>Category</th>
             <th class="text-right">Selling Price</th>
@@ -87,6 +88,7 @@ function renderItemRows(items, isAdmin) {
     <tr>
       <td class="text-muted">${item.id}</td>
       <td><code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;font-size:0.8rem;font-weight:600">${item.code || '—'}</code></td>
+      <td><span class="text-muted" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem">${item.barcode || '—'}</span></td>
       <td><strong>${item.name}</strong></td>
       <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
       <td class="text-right amount font-mono">${formatCurrency(item.sellingPrice)}</td>
@@ -150,6 +152,12 @@ function showItemForm(item, categories, container) {
         <label class="form-label">Item Code</label>
         <input type="text" class="form-input" id="modal-item-code" value="${item?.code || ''}" placeholder="e.g. CB" style="text-transform:uppercase">
       </div>
+      <div class="form-group">
+        <label class="form-label">Bar Code (Scanner)</label>
+        <input type="text" class="form-input" id="modal-item-barcode" value="${item?.barcode || ''}" placeholder="Scan or type barcode...">
+      </div>
+    </div>
+    <div class="form-row">
       <div class="form-group" style="flex:2">
         <label class="form-label">Item Name *</label>
         <input type="text" class="form-input" id="modal-item-name" value="${item?.name || ''}" placeholder="e.g. Chicken Biryani" required>
@@ -201,13 +209,14 @@ function showItemForm(item, categories, container) {
     const incentivePercent = parseFloat(document.getElementById('modal-item-incentive').value) || 0;
     const active = document.getElementById('modal-item-active').checked;
     const code = (document.getElementById('modal-item-code').value || '').trim().toUpperCase();
+    const barcode = (document.getElementById('modal-item-barcode').value || '').trim();
 
     if (!name || !category || sellingPrice <= 0) {
       showToast('Please fill all required fields', 'error');
       return;
     }
 
-    const data = { name, category, sellingPrice, incentivePercent, active, code, createdAt: item?.createdAt || new Date().toISOString() };
+    const data = { name, category, sellingPrice, incentivePercent, active, code, barcode, createdAt: item?.createdAt || new Date().toISOString() };
 
     if (isEdit) {
       data.id = item.id;

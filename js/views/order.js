@@ -404,7 +404,8 @@ function setupItemSearch() {
         item.name.toLowerCase().includes(query) ||
         (item.category || '').toLowerCase().includes(query) ||
         (item.brand || '').toLowerCase().includes(query) ||
-        (item.code || '').toLowerCase().includes(query)
+        (item.code || '').toLowerCase().includes(query) ||
+        (item.barcode || '').toLowerCase().includes(query)
       ).sort((a, b) => {
         const codeA = String(a.code || '');
         const codeB = String(b.code || '');
@@ -425,7 +426,10 @@ function setupItemSearch() {
       // If the query exactly matches an item's code/UPC, auto-select it
       if (query.length >= 8) {
         // Search in ALL items to allow finding out-of-stock items via barcode
-        const exactMatch = menuItems.find(item => (item.code || '').toLowerCase() === query);
+        const exactMatch = menuItems.find(item =>
+          (item.code || '').toLowerCase() === query ||
+          (item.barcode || '').toLowerCase() === query
+        );
         if (exactMatch) {
           if (!filtered.includes(exactMatch)) {
             filtered = [exactMatch, ...filtered];
@@ -456,7 +460,8 @@ function setupItemSearch() {
         item.name.toLowerCase().includes(query) ||
         (item.category || '').toLowerCase().includes(query) ||
         (item.brand || '').toLowerCase().includes(query) ||
-        (item.code || '').toLowerCase().includes(query)
+        (item.code || '').toLowerCase().includes(query) ||
+        (item.barcode || '').toLowerCase().includes(query)
       ).sort((a, b) => {
         const codeA = String(a.code || '');
         const codeB = String(b.code || '');
@@ -542,6 +547,7 @@ function setupItemSearch() {
         `<div class="search-dropdown-item ${i === highlightIdx ? 'highlighted' : ''}" data-idx="${i}">
           <div style="flex:1">
             ${item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.7rem;font-weight:700;margin-right:4px">${item.code}</code>` : ''}
+            ${item.barcode ? `<span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text-muted);margin-right:8px">[${item.barcode}]</span>` : ''}
             <span style="font-weight:600">${item.name}</span>
             <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px">
               ${item.category} ${item.brand ? `• ${item.brand}` : ''}
