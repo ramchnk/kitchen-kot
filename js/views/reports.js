@@ -555,9 +555,9 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
 function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) {
   const tab = document.getElementById('tab-product-stock');
-  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
 
-  const products = allItems.filter(i => DIRECT_CATEGORIES.includes((i.category || '').toUpperCase()));
+  const products = allItems.filter(i => DIRECT_CATEGORIES.includes((i.category || '').toUpperCase().trim()));
 
   if (products.length === 0) {
     tab.innerHTML = `<div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">local_drink</span><p>No Cool Drinks or Cigarette products found in Item Master</p></div>`;
@@ -586,11 +586,15 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
       });
     });
 
+    // Opening Stock = Current Stock + Today's Sold - Today's Purchased
+    const openingStock = isToday(dateStr) ? (prod.currentStock + sold - purchased) : '—';
+
     return {
       id: prod.id,
       name: prod.name,
       category: prod.category,
       currentStock: prod.currentStock || 0,
+      openingStock,
       purchased,
       purchaseCost,
       sold,
@@ -632,12 +636,13 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
     ${Object.entries(categories).map(([cat, items]) => `
       <div class="card mb-2">
         <div class="card-header">
-          <span class="card-title">${cat.toUpperCase() === 'COOL DRINKS' ? '\ud83e\udd64' : '\ud83d\udeac'} ${cat} \u2014 ${formatDate(dateStr)}</span>
+          <span class="card-title">${cat.toUpperCase().includes('COOL') ? '\ud83e\udd64' : '\ud83d\udeac'} ${cat} \u2014 ${formatDate(dateStr)}</span>
         </div>
         <table class="data-table">
           <thead>
             <tr>
               <th>Product</th>
+              <th class="text-right">Opening Stock</th>
               <th class="text-right">Purchased</th>
               <th class="text-right">Purchase Cost</th>
               <th class="text-right">Sold</th>
@@ -649,6 +654,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
             ${items.map(p => `
               <tr>
                 <td><strong>${p.name}</strong></td>
+                <td class="text-right font-mono" style="font-weight:600">${p.openingStock}</td>
                 <td class="text-right font-mono">${p.purchased > 0 ? `<span class="text-success">+${p.purchased}</span>` : '\u2014'}</td>
                 <td class="text-right font-mono">${p.purchaseCost > 0 ? formatCurrency(p.purchaseCost) : '\u2014'}</td>
                 <td class="text-right font-mono">${p.sold > 0 ? `<span class="text-danger">-${p.sold}</span>` : '\u2014'}</td>
@@ -664,11 +670,12 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
           <tfoot>
             <tr style="font-weight:700">
               <td>Total</td>
+              <td class="text-right font-mono">${isToday(dateStr) ? items.reduce((s, p) => s + (p.openingStock || 0), 0) : '—'}</td>
               <td class="text-right font-mono text-success">+${items.reduce((s, p) => s + p.purchased, 0)}</td>
               <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.purchaseCost, 0))}</td>
               <td class="text-right font-mono text-danger">-${items.reduce((s, p) => s + p.sold, 0)}</td>
               <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.saleAmount, 0))}</td>
-              <td></td>
+              <td class="text-right font-mono">${items.reduce((s, p) => s + p.currentStock, 0)}</td>
             </tr>
           </tfoot>
         </table>
