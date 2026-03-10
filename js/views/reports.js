@@ -124,6 +124,60 @@ function generateSalesReport(container, orders, itemMap, dateStr) {
   const sortedItems = Object.values(itemSales).sort((a, b) => b.amount - a.amount);
   const totalQty = sortedItems.reduce((s, i) => s + i.quantity, 0);
 
+  // Split into Liquor and Others
+  const liquorItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() === 'LIQUOR');
+  const otherItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() !== 'LIQUOR');
+
+  const liquorQty = liquorItems.reduce((s, i) => s + i.quantity, 0);
+  const liquorAmount = liquorItems.reduce((s, i) => s + i.amount, 0);
+  const otherQty = otherItems.reduce((s, i) => s + i.quantity, 0);
+  const otherAmount = otherItems.reduce((s, i) => s + i.amount, 0);
+
+  // Helper to build a section table
+  const buildSectionTable = (title, icon, items, sectionQty, sectionAmount) => {
+    if (items.length === 0) return '';
+    return `
+      <div class="card mb-2">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+          <span class="card-title">${icon} ${title} — ${formatDate(dateStr)}</span>
+          <div style="display:flex;gap:16px;align-items:center">
+            <span class="text-muted" style="font-size:0.85rem">${sectionQty} items</span>
+            <span style="font-weight:700;font-size:1.05rem;color:var(--primary)">${formatCurrency(sectionAmount)}</span>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item Name</th>
+              <th>Category</th>
+              <th class="text-right">Qty Sold</th>
+              <th class="text-right">Total Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map((item, i) => `
+              <tr>
+                <td class="text-muted">${i + 1}</td>
+                <td><strong>${item.name}</strong></td>
+                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
+                <td class="text-right font-mono">${item.quantity}</td>
+                <td class="text-right amount font-mono">${formatCurrency(item.amount)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700">
+              <td colspan="3" class="text-right">Subtotal</td>
+              <td class="text-right font-mono">${sectionQty}</td>
+              <td class="text-right amount total font-mono">${formatCurrency(sectionAmount)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+  };
+
   tab.innerHTML = `
     <div class="stats-grid">
       <div class="stat-card">
@@ -144,44 +198,27 @@ function generateSalesReport(container, orders, itemMap, dateStr) {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Item-wise Sales — ${formatDate(dateStr)}</span>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Item Name</th>
-            <th>Category</th>
-            <th class="text-right">Qty Sold</th>
-            <th class="text-right">Total Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${sortedItems.length === 0 ?
-      '<tr><td colspan="5"><div class="empty-state" style="padding:30px"><p>No sales for this date</p></div></td></tr>' :
-      sortedItems.map((item, i) => `
-              <tr>
-                <td class="text-muted">${i + 1}</td>
-                <td><strong>${item.name}</strong></td>
-                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
-                <td class="text-right font-mono">${item.quantity}</td>
-                <td class="text-right amount font-mono">${formatCurrency(item.amount)}</td>
-              </tr>
-            `).join('')}
-        </tbody>
-        ${sortedItems.length > 0 ? `
-          <tfoot>
-            <tr style="font-weight:700">
-              <td colspan="3" class="text-right">Total</td>
-              <td class="text-right font-mono">${totalQty}</td>
-              <td class="text-right amount total font-mono">${formatCurrency(totalAmount)}</td>
-            </tr>
-          </tfoot>
+    ${sortedItems.length === 0 ?
+      '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">point_of_sale</span><p>No sales for this date</p></div></div>' :
+      `
+        ${buildSectionTable('Liquor Sales', '🍺', liquorItems, liquorQty, liquorAmount)}
+        ${buildSectionTable('Other Sales', '🍽️', otherItems, otherQty, otherAmount)}
+
+        ${liquorItems.length > 0 && otherItems.length > 0 ? `
+          <div class="card">
+            <table class="data-table">
+              <tfoot>
+                <tr style="font-weight:700;font-size:1.05rem">
+                  <td class="text-right" style="padding:16px">Grand Total</td>
+                  <td class="text-right font-mono" style="padding:16px">${totalQty}</td>
+                  <td class="text-right amount total font-mono" style="padding:16px">${formatCurrency(totalAmount)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         ` : ''}
-      </table>
-    </div>
+      `
+    }
   `;
 }
 
