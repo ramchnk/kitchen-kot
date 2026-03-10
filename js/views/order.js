@@ -78,6 +78,9 @@ export async function renderOrderView(container) {
             ${Auth.isAdmin() ? `<button class="btn btn-ghost" id="btn-completed-bills" title="Completed Bills">
               <span class="material-symbols-outlined">receipt_long</span> Completed Bills
             </button>` : ''}
+            ${account?.isLiquorEnabled ? `<button class="btn btn-ghost" id="btn-sync-liquor" title="Sync Liquor from API">
+              <span class="material-symbols-outlined">sync</span> Sync Liquor
+            </button>` : ''}
             <button class="btn btn-ghost" id="btn-clear-order" title="Clear Order">
               <span class="material-symbols-outlined">restart_alt</span> Clear
             </button>
@@ -254,6 +257,9 @@ function setupOrderEvents() {
 
   // Completed Bills
   document.getElementById('btn-completed-bills')?.addEventListener('click', () => showCompletedBills());
+
+  // Sync Liquor
+  document.getElementById('btn-sync-liquor')?.addEventListener('click', handleSyncLiquor);
 
   // KOT button
   document.getElementById('btn-kot')?.addEventListener('click', handleKOT);
@@ -958,6 +964,43 @@ async function handleSaveOrder() {
     resetOrderAndUI();
   } catch (err) {
     showToast('Failed to save order: ' + err.message, 'error');
+  }
+}
+
+async function handleSyncLiquor() {
+  console.log('Sync Liquor button clicked');
+  const btn = document.getElementById('btn-sync-liquor');
+  if (!btn) {
+    console.warn('Sync button not found in DOM');
+    return;
+  }
+
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="material-symbols-outlined spinning">sync</span> Syncing...';
+
+  try {
+    showToast('Syncing liquor products from API...', 'info');
+    console.log('Calling LiquorApi.fetchProducts()...');
+    const products = await LiquorApi.fetchProducts();
+    console.log(`LiquorApi.fetchProducts() returned ${products ? products.length : 'null'} products`);
+
+    if (products && products.length > 0) {
+      // Update global menuItems: remove old liquor, add fresh
+      const foodItems = menuItems.filter(i => !i.isLiquor);
+      menuItems = [...foodItems, ...products];
+
+      showToast(`Successfully synced ${products.length} liquor products`, 'success');
+      console.log(`Liquor sync complete. Total menu items: ${menuItems.length}`);
+    } else {
+      showToast('No liquor products found or sync failed', 'warning');
+    }
+  } catch (err) {
+    console.error('Liquor sync error:', err);
+    showToast('Sync failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
   }
 }
 

@@ -10,10 +10,10 @@ let liquorToken = null;
 let liquorProducts = [];
 let liquorEnabled = false;
 
-// ---- Restore token from sessionStorage ----
+// ---- Restore token from localStorage ----
 function restoreToken() {
     if (liquorToken) return true;
-    const saved = sessionStorage.getItem(STORAGE_KEY_TOKEN);
+    const saved = localStorage.getItem(STORAGE_KEY_TOKEN);
     if (saved) {
         liquorToken = saved;
         liquorEnabled = true;
@@ -30,7 +30,7 @@ async function restoreAndAuth() {
     if (restoreToken()) return true;
 
     // Try re-authenticating with saved credentials
-    const creds = sessionStorage.getItem(STORAGE_KEY_CREDS);
+    const creds = localStorage.getItem(STORAGE_KEY_CREDS);
     if (creds) {
         try {
             const { email, password } = JSON.parse(creds);
@@ -60,9 +60,9 @@ async function authenticate(email, password) {
         liquorToken = data.accessToken;
         liquorEnabled = true;
 
-        // Persist to sessionStorage
-        sessionStorage.setItem(STORAGE_KEY_TOKEN, liquorToken);
-        sessionStorage.setItem(STORAGE_KEY_CREDS, JSON.stringify({ email, password }));
+        // Persist to localStorage
+        localStorage.setItem(STORAGE_KEY_TOKEN, liquorToken);
+        localStorage.setItem(STORAGE_KEY_CREDS, JSON.stringify({ email, password }));
 
         console.log('Liquor API authenticated successfully');
         return true;
@@ -74,6 +74,7 @@ async function authenticate(email, password) {
 
 // ---- Fetch Liquor Products ----
 async function fetchProducts(isBackground = false) {
+    console.log('LiquorApi.fetchProducts called, background:', isBackground);
     // Try to restore token if not available
     if (!liquorToken) {
         const restored = await restoreAndAuth();
@@ -96,7 +97,7 @@ async function fetchProducts(isBackground = false) {
             // Token expired — try re-authenticating
             console.warn('Liquor token expired, re-authenticating...');
             liquorToken = null;
-            sessionStorage.removeItem(STORAGE_KEY_TOKEN);
+            localStorage.removeItem(STORAGE_KEY_TOKEN);
             const reAuthed = await restoreAndAuth();
             if (reAuthed) {
                 return await fetchProducts(isBackground); // Retry with new token
@@ -133,7 +134,7 @@ async function fetchProducts(isBackground = false) {
         }));
 
         // Persist to local storage for fast loading next time (scoped by account)
-        const accountId = sessionStorage.getItem(STORAGE_KEY_CREDS) ? JSON.parse(sessionStorage.getItem(STORAGE_KEY_CREDS)).email : 'default';
+        const accountId = localStorage.getItem(STORAGE_KEY_CREDS) ? JSON.parse(localStorage.getItem(STORAGE_KEY_CREDS)).email : 'default';
         localStorage.setItem(`cached_liquor_products_${accountId}`, JSON.stringify(liquorProducts));
         localStorage.setItem(`cached_liquor_timestamp_${accountId}`, Date.now().toString());
 
@@ -170,7 +171,7 @@ async function ensureReady() {
     }
 
     // 2. Try Local Storage Cache (check current session's user)
-    const creds = sessionStorage.getItem(STORAGE_KEY_CREDS);
+    const creds = localStorage.getItem(STORAGE_KEY_CREDS);
     let accountId = 'default';
     if (creds) {
         try { accountId = JSON.parse(creds).email; } catch (e) { }
@@ -205,7 +206,7 @@ function getToken() { return liquorToken; }
 
 // ---- Reset ----
 function reset() {
-    const creds = sessionStorage.getItem(STORAGE_KEY_CREDS);
+    const creds = localStorage.getItem(STORAGE_KEY_CREDS);
     if (creds) {
         try {
             const accountId = JSON.parse(creds).email;
@@ -216,8 +217,8 @@ function reset() {
     liquorToken = null;
     liquorProducts = [];
     liquorEnabled = false;
-    sessionStorage.removeItem(STORAGE_KEY_TOKEN);
-    sessionStorage.removeItem(STORAGE_KEY_CREDS);
+    localStorage.removeItem(STORAGE_KEY_TOKEN);
+    localStorage.removeItem(STORAGE_KEY_CREDS);
 }
 
 export const LiquorApi = {
