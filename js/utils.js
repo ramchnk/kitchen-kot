@@ -167,7 +167,7 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
 
   return `
     <div class="print-header">
-      <h2>COUNTER ORDER</h2>
+      <h2>LIQUOR / COUNTER</h2>
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
@@ -177,7 +177,7 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
     </div>
     <table class="print-kot-items">${itemsHTML}</table>
     <div class="print-footer">
-      <p>--- Counter Copy ---</p>
+      <p>--- Liquor/Counter Copy ---</p>
     </div>
   `;
 }
@@ -302,6 +302,7 @@ export function generateStockPrintHTML(ingredients) {
 
 
 export function isCounterItem(item) {
-  const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE'];
-  return COUNTER_CATEGORIES.includes((item.category || '').toUpperCase());
+  const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
+  const cat = (item.category || '').toUpperCase().trim();
+  return COUNTER_CATEGORIES.includes(cat);
 }
