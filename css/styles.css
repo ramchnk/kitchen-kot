@@ -613,10 +613,34 @@ a {
   animation: dropDown 0.15s ease;
 }
 
+/* Item search dropdown opens upward so it doesn't cover the order items table */
+#item-dropdown {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+#item-dropdown.visible {
+  animation: dropUp 0.15s ease;
+}
+
 @keyframes dropDown {
   from {
     opacity: 0;
     transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
 
   to {
