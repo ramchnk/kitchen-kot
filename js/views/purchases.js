@@ -327,8 +327,8 @@ function showPurchaseForm(container) {
 
   // Build searchable data: combine ingredients + products
   const searchableItems = [
-    ...allIngredients.map(i => ({ type: 'ingredient', id: i.id, name: i.name, unit: i.unit, category: '🥬 Ingredient', code: '' })),
-    ...allProducts.map(p => ({ type: 'product', id: p.id, name: p.name, unit: 'pcs', category: `📦 ${p.category}`, price: p.sellingPrice, code: p.code || '' })),
+    ...allIngredients.map(i => ({ type: 'ingredient', id: i.id, name: i.name, unit: i.unit, category: '🥬 Ingredient', code: '', barcode: i.barcode || '' })),
+    ...allProducts.map(p => ({ type: 'product', id: p.id, name: p.name, unit: 'pcs', category: `📦 ${p.category}`, price: p.sellingPrice, code: p.code || '', barcode: p.barcode || '' })),
   ];
 
   setupPurchaseItemSearch(searchableItems);
@@ -469,10 +469,29 @@ function setupPurchaseItemSearch(searchableItems) {
       filtered = searchableItems.filter(item =>
         item.name.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query) ||
-        (item.code && item.code.toLowerCase().includes(query))
+        (item.code && item.code.toLowerCase().includes(query)) ||
+        (item.barcode && item.barcode.toLowerCase().includes(query))
       );
     }
     highlightIdx = filtered.length > 0 ? 0 : -1;
+
+    // Barcode Scanner Logic:
+    // If the query is 8+ chars and exactly matches an item's barcode/code, auto-select it
+    if (query.length >= 8) {
+      const exactMatch = searchableItems.find(item =>
+        (item.code || '').toLowerCase() === query ||
+        (item.barcode || '').toLowerCase() === query
+      );
+      if (exactMatch) {
+        if (!filtered.includes(exactMatch)) {
+          filtered = [exactMatch, ...filtered];
+        }
+        const matchIdx = filtered.indexOf(exactMatch);
+        selectItem(matchIdx);
+        return; // Skip rendering dropdown since item is auto-selected
+      }
+    }
+
     renderDropdown();
   }
 

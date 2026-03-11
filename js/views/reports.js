@@ -649,8 +649,8 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
   const prevDayAdjustments = allStockAdjustments.filter(a => a.date === prevDateStr);
   const prevDayMap = Object.fromEntries(prevDayAdjustments.map(a => [a.productId, a]));
 
-  // ALL product purchases ever (fallback for opening stock)
-  const allProductPurchases = allPurchases.filter(p => p.productId);
+  // Product purchases BEFORE the selected date (for opening stock fallback)
+  const priorProductPurchases = allPurchases.filter(p => p.productId && p.date < dateStr);
   // Purchases on the selected date
   const dayPurchases = allPurchases.filter(p => p.date === dateStr && p.productId);
 
@@ -687,8 +687,8 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       // Previous day's actual closing stock = today's opening
       openingStock = prevDayMap[prod.id].actualClosing;
     } else {
-      // Fallback: total purchased all time (first-time setup)
-      openingStock = allProductPurchases
+      // Fallback: total purchased BEFORE this date (initial setup)
+      openingStock = priorProductPurchases
         .filter(p => p.productId === prod.id)
         .reduce((s, p) => s + (p.quantity || 0), 0);
     }
@@ -743,7 +743,10 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       </div>
     </div>
 
-    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;gap:8px">
+      <button class="btn btn-secondary" id="btn-print-product-stock">
+        <span class="material-symbols-outlined">print</span> Print Stock Report
+      </button>
       <button class="btn btn-primary" id="btn-save-closing-stock">
         <span class="material-symbols-outlined">save</span> Save Closing Stock
       </button>
@@ -898,5 +901,113 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     if (reportDate) {
       document.getElementById('btn-generate-report')?.click();
     }
+  });
+
+  // Print Product Stock Report
+  document.getElementById('btn-print-product-stock')?.addEventListener('click', () => {
+    // Read actual closing stock values from inputs
+    const inputValues = {};
+    tab.querySelectorAll('.closing-stock-input').forEach(input => {
+      inputValues[input.dataset.productId] = parseInt(input.value) || 0;
+    });
+
+    let printHTML = `
+      <div class="print-header">
+        <h2>PRODUCT STOCK REPORT</h2>
+        <p>Cool Drinks & Cigarettes</p>
+      </div>
+      <div class="print-meta">
+        <div><span>Date:</span><span>${formatDate(dateStr)}</span></div>
+        <div><span>Printed:</span><span>${new Date().toLocaleString('en-IN')}</span></div>
+      </div>
+    `;
+
+    Object.entries(categories).forEach(([cat, items]) => {
+      const catIcon = cat.toUpperCase().includes('COOL') ? '🥤' : '🚬';
+      printHTML += `
+        <div style="margin-top:12px;font-weight:700;font-size:1.1em;border-bottom:2px solid #000;padding-bottom:4px">
+          ${catIcon} ${cat}
+        </div>
+        <table class="print-items" style="width:100%;border-collapse:collapse;margin-top:4px">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:4px 6px;border-bottom:1px solid #000">Product</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Opening</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Purchased</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Sold</th>
+              <th style="text-align:right;padding:4px 6px;border-bottom:1px solid #000">Sale Amt</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Expected</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Actual</th>
+              <th style="text-align:center;padding:4px 6px;border-bottom:1px solid #000">Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      let catTotals = { opening: 0, purchased: 0, sold: 0, saleAmount: 0, expected: 0, actual: 0, diff: 0 };
+
+      items.forEach(p => {
+        const actual = inputValues[p.id] ?? p.expectedClosing;
+        const diff = p.expectedClosing - actual;
+        catTotals.opening += p.openingStock;
+        catTotals.purchased += p.purchased;
+        catTotals.sold += p.sold;
+        catTotals.saleAmount += p.saleAmount;
+        catTotals.expected += p.expectedClosing;
+        catTotals.actual += actual;
+        catTotals.diff += diff;
+
+        printHTML += `
+            <tr>
+              <td style="padding:3px 6px;border-bottom:1px dashed #ccc">${p.name}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc">${p.openingStock}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc">${p.purchased > 0 ? '+' + p.purchased : '-'}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc">${p.sold > 0 ? '-' + p.sold : '-'}</td>
+              <td style="text-align:right;padding:3px 6px;border-bottom:1px dashed #ccc">${p.saleAmount > 0 ? formatCurrency(p.saleAmount) : '-'}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc">${p.expectedClosing}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc;font-weight:700">${actual}</td>
+              <td style="text-align:center;padding:3px 6px;border-bottom:1px dashed #ccc;${diff !== 0 ? 'font-weight:700' : ''}">${diff !== 0 ? diff : '-'}</td>
+            </tr>
+        `;
+      });
+
+      printHTML += `
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;border-top:2px solid #000">
+              <td style="padding:4px 6px">Total</td>
+              <td style="text-align:center;padding:4px 6px">${catTotals.opening}</td>
+              <td style="text-align:center;padding:4px 6px">+${catTotals.purchased}</td>
+              <td style="text-align:center;padding:4px 6px">-${catTotals.sold}</td>
+              <td style="text-align:right;padding:4px 6px">${formatCurrency(catTotals.saleAmount)}</td>
+              <td style="text-align:center;padding:4px 6px">${catTotals.expected}</td>
+              <td style="text-align:center;padding:4px 6px">${catTotals.actual}</td>
+              <td style="text-align:center;padding:4px 6px">${catTotals.diff !== 0 ? catTotals.diff : '-'}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+    });
+
+    // Grand summary
+    printHTML += `
+      <div style="margin-top:16px;padding-top:8px;border-top:2px solid #000">
+        <div style="display:flex;justify-content:space-between;font-weight:700;font-size:1.05em">
+          <span>Total Opening: ${totalOpeningStock}</span>
+          <span>Purchased: +${totalPurchased}</span>
+          <span>Sold: -${totalSold}</span>
+          <span>Expected: ${totalExpectedClosing}</span>
+        </div>
+        <div style="margin-top:6px;display:flex;justify-content:space-between;font-size:0.9em">
+          <span>Total Sale Amount: ${formatCurrency(totalSaleAmount)}</span>
+          <span>Purchase Cost: ${formatCurrency(totalPurchaseCost)}</span>
+        </div>
+      </div>
+      <div class="print-footer">
+        <p>--- End of Stock Report ---</p>
+      </div>
+    `;
+
+    printContent(printHTML, 'a4');
   });
 }
