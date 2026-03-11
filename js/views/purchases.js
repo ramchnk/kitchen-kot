@@ -431,14 +431,26 @@ function showPurchaseForm(container) {
       await DB.recordWalletTransaction('purchase', totalCost, `Cash Purchase: ${itemSummary}`, batchId);
     }
 
-    // If credit purchase, create a supplier bill for outstanding tracking
-    if (paymentType === 'credit') {
-      await DB.add('supplierBills', {
+    // Create supplier bill for ALL purchases (both cash and credit) for accurate supplier tracking
+    const billId = await DB.add('supplierBills', {
+      supplierId: parseInt(supplierId),
+      totalAmount: totalCost,
+      batchId,
+      date,
+      description: `Purchase: ${purchaseItems.map(i => i.itemName).join(', ')}`,
+      paymentType,
+      createdAt: new Date().toISOString(),
+    });
+
+    // If cash purchase, also create a matching payment so outstanding = ₹0
+    if (paymentType === 'cash') {
+      await DB.add('supplierPayments', {
         supplierId: parseInt(supplierId),
-        totalAmount: totalCost,
-        batchId,
-        date,
-        description: `Purchase: ${purchaseItems.map(i => i.itemName).join(', ')}`,
+        billId,
+        amount: totalCost,
+        paymentDate: date,
+        paymentMode: 'cash',
+        notes: `Auto-paid: Cash purchase (Batch ${batchId})`,
         createdAt: new Date().toISOString(),
       });
     }
