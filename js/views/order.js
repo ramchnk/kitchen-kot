@@ -193,8 +193,8 @@ export async function renderOrderView(container) {
           <button class="btn btn-success btn-lg" id="btn-bill" title="Generate Direct Bill (F2)">
             <span class="material-symbols-outlined">receipt</span> Direct Bill (F2)
           </button>
-          <button class="btn btn-secondary" id="btn-save-order" title="Save Order (Ctrl+S)">
-            <span class="material-symbols-outlined">save</span> Save Order
+          <button class="btn btn-secondary" id="btn-save-order" title="KOT & Complete — Print KOT only, mark as completed (F3)">
+            <span class="material-symbols-outlined">done_all</span> KOT & Complete (F3)
           </button>
         </div>
       </div>
@@ -719,8 +719,16 @@ function updateSummary() {
 
 function setupOrderShortcuts() {
   registerShortcut('f1', handleKOT, 'Print KOT');
-  registerShortcut('f2', handleBill, 'Generate Bill');
-  registerShortcut('ctrl+s', handleSaveOrder, 'Save Order');
+  registerShortcut('f2', handleBill, 'Direct Bill');
+  registerShortcut('f3', handleSaveOrder, 'KOT & Complete');
+  registerShortcut('escape', () => {
+    resetOrderAndUI();
+    showToast('Order cleared', 'info');
+  }, 'Cancel');
+  registerShortcut('alt+n', () => {
+    resetOrderAndUI();
+    showToast('New order started', 'info');
+  }, 'New Order');
 }
 
 
@@ -926,50 +934,107 @@ async function handleBill() {
 }
 
 async function handleSaveOrder() {
+  // KOT & Complete: Print KOT, mark as billed/completed, update stock/wallet, NO bill print
   if (orderState.items.length === 0) {
     showToast('Add items before saving', 'warning');
     return;
   }
 
   try {
+    const now = new Date().toISOString();
     let order;
 
+    // 1. Identify unprinted items (delta) for KOT
+    const deltaItems = [];
+    for (const item of orderState.items) {
+      const printed = item.kotPrintedQty || 0;
+      const newQty = item.quantity - printed;
+      if (newQty > 0) {
+        deltaItems.push({ ...item, quantity: newQty });
+      }
+    }
+
+    // Prepare order with updated kotPrintedQty
+    const finalizedItems = orderState.items.map(item => ({ ...item, kotPrintedQty: item.quantity }));
+
     if (orderState.editingOrderId) {
-      // Update existing order
+      // Update existing order → mark as billed
       order = await DB.getById('orders', orderState.editingOrderId);
-      order.items = [...orderState.items];
+      order.items = finalizedItems;
       const totals = calculateTotals();
       order.subTotal = totals.subTotal;
       order.acCharge = totals.acCharge;
       order.totalAmount = totals.totalAmount;
       order.supplierId = orderState.supplierId;
       order.tableId = orderState.tableId;
+      order.status = 'billed';
+      order.type = 'kot-complete';
+      order.billedAt = now;
       await DB.update('orders', order);
-      showToast(`Order #${order.orderNumber} updated!`, 'success');
     } else {
-      // Create new saved order
+      // Create new billed order
       const orderNumber = await DB.getNextOrderNumber();
       const totals = calculateTotals();
       order = {
         orderNumber,
         supplierId: orderState.supplierId,
         tableId: orderState.tableId,
-        items: [...orderState.items],
+        items: finalizedItems,
         subTotal: totals.subTotal,
         acCharge: totals.acCharge,
         totalAmount: totals.totalAmount,
-        status: 'open',
-        type: 'saved',
-        createdAt: new Date().toISOString(),
-        billedAt: null,
+        status: 'billed',
+        type: 'kot-complete',
+        createdAt: now,
+        billedAt: now,
       };
       await DB.add('orders', order);
-      showToast(`Order #${orderNumber} saved!`, 'success');
     }
 
+    // 2. Print KOT if there were unprinted items
+    if (deltaItems.length > 0) {
+      const supplierName = suppliers.find(s => s.id === orderState.supplierId)?.name || '';
+      const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
+
+      const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
+      const counterItems = deltaItems.filter(item => isCounterItem(item));
+
+      if (kitchenItems.length > 0 && counterItems.length > 0) {
+        const kitchenOrder = { ...order, items: kitchenItems };
+        printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
+        setTimeout(() => {
+          printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+        }, 1000);
+      } else if (counterItems.length > 0) {
+        printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+      } else {
+        const printOrder = { ...order, items: kitchenItems };
+        printContent(generateKOTPrintHTML(printOrder, supplierName, tableName));
+      }
+    }
+
+    // 3. Update ingredient/product stock (consumption)
+    await updateIngredientConsumption(order.items);
+
+    // 4. Record Wallet Transaction (Income, excluding counter/liquor items)
+    const nonCounterSubtotal = finalizedItems
+      .filter(item => !isCounterItem(item))
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    if (nonCounterSubtotal > 0) {
+      const totals = calculateTotals();
+      const proportionalAc = totals.subTotal > 0 ? (nonCounterSubtotal / totals.subTotal) * totals.acCharge : 0;
+      const walletAmount = nonCounterSubtotal + proportionalAc;
+      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+    }
+
+    // NO Bill print — only KOT was printed
+    showToast(`KOT #${order.orderNumber} printed & completed!`, 'success');
+
+    // Reset
     resetOrderAndUI();
   } catch (err) {
-    showToast('Failed to save order: ' + err.message, 'error');
+    showToast('Failed: ' + err.message, 'error');
   }
 }
 

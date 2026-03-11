@@ -31,7 +31,7 @@ function buildKey(e) {
 
     let key = e.key;
     if (key === ' ') key = 'space';
-    if (key.length === 1) key = key.toLowerCase();
+    key = key.toLowerCase();
 
     parts.push(key);
     return parts.join('+');
@@ -39,6 +39,18 @@ function buildKey(e) {
 
 function handleKeydown(e) {
     if (!enabled) return;
+
+    // Modal Escape: close modal first if one is open
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('modal-overlay');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+            document.getElementById('modal-content').innerHTML = '';
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+    }
 
     const key = buildKey(e);
     const shortcut = shortcuts.get(key);
@@ -64,16 +76,3 @@ function handleKeydown(e) {
 
 // Initialize
 document.addEventListener('keydown', handleKeydown);
-
-// Also handle Escape for modal closing
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        const modal = document.getElementById('modal-overlay');
-        if (modal && !modal.classList.contains('hidden')) {
-            modal.classList.add('hidden');
-            document.getElementById('modal-content').innerHTML = '';
-            e.preventDefault();
-            e.stopPropagation();
-        }
-    }
-});
