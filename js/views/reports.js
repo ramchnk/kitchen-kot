@@ -1,6 +1,6 @@
 // ===== Reports View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML } from '../utils.js';
+import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast } from '../utils.js';
 
 export async function renderReportsView(container) {
   container.innerHTML = `
@@ -81,6 +81,7 @@ async function generateReports(container) {
   const purchases = await DB.getAll('purchases');
   const grocerySuppliers = await DB.getAll('grocerySuppliers');
   const expenses = await DB.getAll('expenses');
+  const stockAdjustments = await DB.getAll('stockAdjustments');
 
   // Filter orders by date and billed status
   const dayOrders = orders.filter(o => {
@@ -89,20 +90,23 @@ async function generateReports(container) {
     return d && d.startsWith(dateStr);
   });
 
+  // Filter stock adjustments for the selected date
+  const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
+
   const itemMap = Object.fromEntries(items.map(i => [i.id, i]));
   const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
   const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
   const grocerySupplierMap = Object.fromEntries(grocerySuppliers.map(s => [s.id, s]));
 
-  generateSalesReport(container, dayOrders, itemMap, dateStr);
+  generateSalesReport(container, dayOrders, itemMap, dateStr, dayAdjustments);
   generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
   generateConsumptionReport(container, dayOrders, allRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(dayOrders, purchases, items, dateStr);
+  generateProductStockReport(dayOrders, purchases, items, dateStr, stockAdjustments);
   generateExpenseReport(container, expenses, dateStr);
 }
 
-function generateSalesReport(container, orders, itemMap, dateStr) {
+function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments = []) {
   const tab = document.getElementById('tab-sales');
 
   const totalBills = orders.length;
@@ -133,11 +137,27 @@ function generateSalesReport(container, orders, itemMap, dateStr) {
   const otherQty = otherItems.reduce((s, i) => s + i.quantity, 0);
   const otherAmount = otherItems.reduce((s, i) => s + i.amount, 0);
 
+  // Stock Adjustment (Counter/Unbilled Sales)
+  const adjustmentItems = dayAdjustments
+    .filter(a => a.adjustedQty > 0)
+    .map(a => ({
+      name: a.productName,
+      category: a.category,
+      quantity: a.adjustedQty,
+      amount: a.adjustedAmount,
+    }));
+  const adjustmentQty = adjustmentItems.reduce((s, i) => s + i.quantity, 0);
+  const adjustmentAmount = adjustmentItems.reduce((s, i) => s + i.amount, 0);
+
+  // Grand totals including adjustments
+  const grandTotalQty = totalQty + adjustmentQty;
+  const grandTotalAmount = totalAmount + adjustmentAmount;
+
   // Helper to build a section table
-  const buildSectionTable = (title, icon, items, sectionQty, sectionAmount) => {
+  const buildSectionTable = (title, icon, items, sectionQty, sectionAmount, extraStyle = '') => {
     if (items.length === 0) return '';
     return `
-      <div class="card mb-2">
+      <div class="card mb-2" ${extraStyle}>
         <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
           <span class="card-title">${icon} ${title} — ${formatDate(dateStr)}</span>
           <div style="display:flex;gap:16px;align-items:center">
@@ -186,37 +206,56 @@ function generateSalesReport(container, orders, itemMap, dateStr) {
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(totalAmount)}</div><div class="stat-label">Total Sales</div></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Sales ${adjustmentAmount > 0 ? '(incl. Counter)' : ''}</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>
-        <div><div class="stat-value">${totalQty}</div><div class="stat-label">Items Sold</div></div>
+        <div><div class="stat-value">${grandTotalQty}</div><div class="stat-label">Items Sold</div></div>
       </div>
+      ${adjustmentAmount > 0 ? `
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#f59e0b20;color:#d97706"><span class="material-symbols-outlined">storefront</span></div>
+        <div><div class="stat-value">${formatCurrency(adjustmentAmount)}</div><div class="stat-label">Counter Sales (Unbilled)</div></div>
+      </div>
+      ` : `
       <div class="stat-card">
         <div class="stat-icon purple"><span class="material-symbols-outlined">avg_pace</span></div>
         <div><div class="stat-value">${totalBills > 0 ? formatCurrency(totalAmount / totalBills) : '₹0'}</div><div class="stat-label">Avg Bill Value</div></div>
       </div>
+      `}
     </div>
 
-    ${sortedItems.length === 0 ?
+    ${sortedItems.length === 0 && adjustmentItems.length === 0 ?
       '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">point_of_sale</span><p>No sales for this date</p></div></div>' :
       `
         ${buildSectionTable('Liquor Sales', '🍺', liquorItems, liquorQty, liquorAmount)}
         ${buildSectionTable('Other Sales', '🍽️', otherItems, otherQty, otherAmount)}
+        ${buildSectionTable('Counter Sales (Stock Adjusted)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
+          'style="border-left:3px solid #d97706"')}
 
-        ${liquorItems.length > 0 && otherItems.length > 0 ? `
-          <div class="card">
-            <table class="data-table">
-              <tfoot>
-                <tr style="font-weight:700;font-size:1.05rem">
-                  <td class="text-right" style="padding:16px">Grand Total</td>
-                  <td class="text-right font-mono" style="padding:16px">${totalQty}</td>
-                  <td class="text-right amount total font-mono" style="padding:16px">${formatCurrency(totalAmount)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        ` : ''}
+        <div class="card">
+          <table class="data-table">
+            <tfoot>
+              ${adjustmentAmount > 0 ? `
+              <tr style="font-weight:600;font-size:0.9rem;color:var(--text-secondary)">
+                <td class="text-right" style="padding:12px 16px">Billed Sales</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${totalQty}</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(totalAmount)}</td>
+              </tr>
+              <tr style="font-weight:600;font-size:0.9rem;color:#d97706">
+                <td class="text-right" style="padding:12px 16px">+ Counter Sales (Unbilled)</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${adjustmentQty}</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(adjustmentAmount)}</td>
+              </tr>
+              ` : ''}
+              <tr style="font-weight:700;font-size:1.05rem">
+                <td class="text-right" style="padding:16px">Grand Total</td>
+                <td class="text-right font-mono" style="padding:16px">${grandTotalQty}</td>
+                <td class="text-right amount total font-mono" style="padding:16px">${formatCurrency(grandTotalAmount)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       `
     }
   `;
@@ -590,7 +629,7 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
 }
 
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
-function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) {
+function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, allStockAdjustments = []) {
   const tab = document.getElementById('tab-product-stock');
   const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
 
@@ -601,10 +640,23 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
     return;
   }
 
+  // Calculate previous day for looking up closing stock
+  const prevDate = new Date(dateStr + 'T00:00:00');
+  prevDate.setDate(prevDate.getDate() - 1);
+  const prevDateStr = prevDate.toISOString().split('T')[0];
+
+  // Previous day's stock adjustments (closing stock from yesterday)
+  const prevDayAdjustments = allStockAdjustments.filter(a => a.date === prevDateStr);
+  const prevDayMap = Object.fromEntries(prevDayAdjustments.map(a => [a.productId, a]));
+
+  // ALL product purchases ever (fallback for opening stock)
+  const allProductPurchases = allPurchases.filter(p => p.productId);
+  // Purchases on the selected date
   const dayPurchases = allPurchases.filter(p => p.date === dateStr && p.productId);
 
   const productData = products.map(prod => {
-    const purchased = dayPurchases
+    // Purchased on selected date
+    const purchasedToday = dayPurchases
       .filter(p => p.productId === prod.id)
       .reduce((s, p) => s + (p.quantity || 0), 0);
 
@@ -623,8 +675,26 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
       });
     });
 
-    // Opening Stock = Current Stock + Today's Sold - Today's Purchased
-    const openingStock = isToday(dateStr) ? (prod.currentStock + sold - purchased) : '—';
+    // Opening Stock Logic:
+    // 1. If today → reverse-calculate from currentStock: currentStock + sold_today - purchased_today
+    // 2. If past date and previous day has stockAdjustment → use actualClosing from previous day
+    // 3. Fallback → total purchases all time (initial setup)
+    let openingStock;
+    if (isToday(dateStr)) {
+      // Reverse-calculate: current live stock + what was sold - what was purchased = start of day
+      openingStock = (prod.currentStock || 0) + sold - purchasedToday;
+    } else if (prevDayMap[prod.id]) {
+      // Previous day's actual closing stock = today's opening
+      openingStock = prevDayMap[prod.id].actualClosing;
+    } else {
+      // Fallback: total purchased all time (first-time setup)
+      openingStock = allProductPurchases
+        .filter(p => p.productId === prod.id)
+        .reduce((s, p) => s + (p.quantity || 0), 0);
+    }
+
+    // Expected Closing = Opening + Purchased Today - Sold
+    const expectedClosing = Math.max(0, openingStock + purchasedToday - sold);
 
     return {
       id: prod.id,
@@ -632,17 +702,20 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
       category: prod.category,
       currentStock: prod.currentStock || 0,
       openingStock,
-      purchased,
+      purchased: purchasedToday,
       purchaseCost,
       sold,
       saleAmount,
+      expectedClosing,
     };
   });
 
+  const totalOpeningStock = productData.reduce((s, p) => s + p.openingStock, 0);
   const totalPurchased = productData.reduce((s, p) => s + p.purchased, 0);
   const totalSold = productData.reduce((s, p) => s + p.sold, 0);
   const totalPurchaseCost = productData.reduce((s, p) => s + p.purchaseCost, 0);
   const totalSaleAmount = productData.reduce((s, p) => s + p.saleAmount, 0);
+  const totalExpectedClosing = productData.reduce((s, p) => s + p.expectedClosing, 0);
 
   const categories = {};
   productData.forEach(p => {
@@ -653,27 +726,33 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
   tab.innerHTML = `
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon blue"><span class="material-symbols-outlined">add_shopping_cart</span></div>
-        <div><div class="stat-value">${totalPurchased}</div><div class="stat-label">Purchased Today</div></div>
+        <div class="stat-icon blue"><span class="material-symbols-outlined">inventory</span></div>
+        <div><div class="stat-value">${totalOpeningStock}</div><div class="stat-label">Opening Stock</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">shopping_bag</span></div>
-        <div><div class="stat-value">${totalSold}</div><div class="stat-label">Sold Today</div></div>
+        <div><div class="stat-value">${totalSold}</div><div class="stat-label">Sold (${formatDate(dateStr)})</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(totalPurchaseCost)}</div><div class="stat-label">Purchase Cost</div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon purple"><span class="material-symbols-outlined">point_of_sale</span></div>
         <div><div class="stat-value">${formatCurrency(totalSaleAmount)}</div><div class="stat-label">Sale Amount</div></div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon purple"><span class="material-symbols-outlined">calculate</span></div>
+        <div><div class="stat-value">${totalExpectedClosing}</div><div class="stat-label">Expected Closing</div></div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn btn-primary" id="btn-save-closing-stock">
+        <span class="material-symbols-outlined">save</span> Save Closing Stock
+      </button>
     </div>
 
     ${Object.entries(categories).map(([cat, items]) => `
       <div class="card mb-2">
         <div class="card-header">
-          <span class="card-title">${cat.toUpperCase().includes('COOL') ? '\ud83e\udd64' : '\ud83d\udeac'} ${cat} \u2014 ${formatDate(dateStr)}</span>
+          <span class="card-title">${cat.toUpperCase().includes('COOL') ? '🥤' : '🚬'} ${cat} — ${formatDate(dateStr)}</span>
         </div>
         <table class="data-table">
           <thead>
@@ -681,10 +760,10 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
               <th>Product</th>
               <th class="text-right">Opening Stock</th>
               <th class="text-right">Purchased</th>
-              <th class="text-right">Purchase Cost</th>
               <th class="text-right">Sold</th>
               <th class="text-right">Sale Amount</th>
-              <th class="text-right">Current Stock</th>
+              <th class="text-right">Expected Closing</th>
+              <th class="text-right" style="background:var(--primary-light, #e0e7ff);color:var(--primary)">Actual Closing Stock</th>
             </tr>
           </thead>
           <tbody>
@@ -692,14 +771,17 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
               <tr>
                 <td><strong>${p.name}</strong></td>
                 <td class="text-right font-mono" style="font-weight:600">${p.openingStock}</td>
-                <td class="text-right font-mono">${p.purchased > 0 ? `<span class="text-success">+${p.purchased}</span>` : '\u2014'}</td>
-                <td class="text-right font-mono">${p.purchaseCost > 0 ? formatCurrency(p.purchaseCost) : '\u2014'}</td>
-                <td class="text-right font-mono">${p.sold > 0 ? `<span class="text-danger">-${p.sold}</span>` : '\u2014'}</td>
-                <td class="text-right font-mono">${p.saleAmount > 0 ? formatCurrency(p.saleAmount) : '\u2014'}</td>
-                <td class="text-right font-mono">
-                  <span class="status-badge ${p.currentStock > 0 ? 'status-active' : 'status-inactive'}" style="font-weight:700">
-                    ${p.currentStock}
-                  </span>
+                <td class="text-right font-mono">${p.purchased > 0 ? `<span class="text-success">+${p.purchased}</span>` : '—'}</td>
+                <td class="text-right font-mono">${p.sold > 0 ? `<span class="text-danger">-${p.sold}</span>` : '—'}</td>
+                <td class="text-right font-mono">${p.saleAmount > 0 ? formatCurrency(p.saleAmount) : '—'}</td>
+                <td class="text-right font-mono" style="font-weight:600">${p.expectedClosing}</td>
+                <td class="text-right" style="background:var(--primary-light, #e0e7ff)">
+                  <input type="number" class="form-input closing-stock-input" 
+                    data-product-id="${p.id}" 
+                    value="${p.expectedClosing}" 
+                    min="0" 
+                    style="width:80px;text-align:center;padding:4px 8px;font-weight:700;font-size:0.95rem;margin:0 0 0 auto;display:block"
+                  >
                 </td>
               </tr>
             `).join('')}
@@ -707,16 +789,114 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr) 
           <tfoot>
             <tr style="font-weight:700">
               <td>Total</td>
-              <td class="text-right font-mono">${isToday(dateStr) ? items.reduce((s, p) => s + (p.openingStock || 0), 0) : '—'}</td>
+              <td class="text-right font-mono">${items.reduce((s, p) => s + p.openingStock, 0)}</td>
               <td class="text-right font-mono text-success">+${items.reduce((s, p) => s + p.purchased, 0)}</td>
-              <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.purchaseCost, 0))}</td>
               <td class="text-right font-mono text-danger">-${items.reduce((s, p) => s + p.sold, 0)}</td>
               <td class="text-right font-mono">${formatCurrency(items.reduce((s, p) => s + p.saleAmount, 0))}</td>
-              <td class="text-right font-mono">${items.reduce((s, p) => s + p.currentStock, 0)}</td>
+              <td class="text-right font-mono">${items.reduce((s, p) => s + p.expectedClosing, 0)}</td>
+              <td class="text-right font-mono" style="background:var(--primary-light, #e0e7ff)" id="closing-stock-total-${cat.replace(/\s+/g, '-').toLowerCase()}">—</td>
             </tr>
           </tfoot>
         </table>
       </div>
     `).join('')}
   `;
+
+  // Calculate and display closing stock totals dynamically
+  function updateClosingTotals() {
+    Object.keys(categories).forEach(cat => {
+      const totalEl = document.getElementById(`closing-stock-total-${cat.replace(/\s+/g, '-').toLowerCase()}`);
+      if (!totalEl) return;
+      let total = 0;
+      categories[cat].forEach(p => {
+        const input = tab.querySelector(`.closing-stock-input[data-product-id="${p.id}"]`);
+        total += parseInt(input?.value) || 0;
+      });
+      totalEl.textContent = total;
+    });
+  }
+
+  // Initial total calculation
+  updateClosingTotals();
+
+  // Update totals on input change
+  tab.querySelectorAll('.closing-stock-input').forEach(input => {
+    input.addEventListener('input', updateClosingTotals);
+  });
+
+  // Save Closing Stock button
+  document.getElementById('btn-save-closing-stock')?.addEventListener('click', async () => {
+    const inputs = tab.querySelectorAll('.closing-stock-input');
+    let updatedCount = 0;
+    let adjustmentCount = 0;
+
+    // First, delete any existing adjustments for this date to avoid duplicates
+    const existingAdjustments = await DB.getAll('stockAdjustments');
+    for (const adj of existingAdjustments.filter(a => a.date === dateStr)) {
+      await DB.remove('stockAdjustments', adj.id);
+    }
+
+    for (const input of inputs) {
+      const productId = parseInt(input.dataset.productId);
+      const actualClosing = parseInt(input.value) || 0;
+
+      // Find the product data to get expected closing and selling price
+      const prodData = productData.find(p => p.id === productId);
+      const product = await DB.getById('items', productId);
+      if (!product || !prodData) continue;
+
+      // Update currentStock
+      product.currentStock = actualClosing;
+      await DB.update('items', product);
+      updatedCount++;
+
+      // Calculate adjustment (unbilled counter sales)
+      const adjustedQty = prodData.expectedClosing - actualClosing;
+      if (adjustedQty > 0) {
+        // Positive adjustment = items sold without bill (counter sales)
+        const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
+        await DB.add('stockAdjustments', {
+          productId: productId,
+          productName: product.name,
+          category: product.category,
+          date: dateStr,
+          openingStock: prodData.openingStock,
+          expectedClosing: prodData.expectedClosing,
+          actualClosing: actualClosing,
+          adjustedQty: adjustedQty,
+          adjustedAmount: adjustedAmount,
+          sellingPrice: product.sellingPrice || 0,
+          createdAt: new Date().toISOString(),
+        });
+        adjustmentCount++;
+      } else if (adjustedQty < 0) {
+        // Negative adjustment = excess stock (received without purchase entry, etc.)
+        await DB.add('stockAdjustments', {
+          productId: productId,
+          productName: product.name,
+          category: product.category,
+          date: dateStr,
+          openingStock: prodData.openingStock,
+          expectedClosing: prodData.expectedClosing,
+          actualClosing: actualClosing,
+          adjustedQty: adjustedQty,
+          adjustedAmount: adjustedQty * (product.sellingPrice || 0),
+          sellingPrice: product.sellingPrice || 0,
+          createdAt: new Date().toISOString(),
+        });
+        adjustmentCount++;
+      }
+    }
+
+    const msg = adjustmentCount > 0
+      ? `Stock updated for ${updatedCount} product(s) with ${adjustmentCount} adjustment(s). Sales Report updated!`
+      : `Stock updated for ${updatedCount} product(s). No adjustments needed.`;
+    showToast(msg, 'success');
+
+    // Refresh the report to reflect updated stock and adjustments in Sales Report
+    const reportDate = document.getElementById('report-date');
+    if (reportDate) {
+      document.getElementById('btn-generate-report')?.click();
+    }
+  });
 }
