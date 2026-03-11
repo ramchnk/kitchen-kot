@@ -912,15 +912,16 @@ async function handleBill() {
     const printHTML = generateBillPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
     printContent(printHTML);
 
-    // Record Wallet Transaction (Income adds to wallet, excluding counter/liquor items)
-    const nonCounterSubtotal = finalizedItems
-      .filter(item => !isCounterItem(item))
+    // Record Wallet Transaction (Income adds to wallet, excluding LIQUOR items only)
+    const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
+    const nonLiquorSubtotal = finalizedItems
+      .filter(item => !isLiquor(item))
       .reduce((sum, item) => sum + item.amount, 0);
 
-    if (nonCounterSubtotal > 0) {
+    if (nonLiquorSubtotal > 0) {
       const totals = calculateTotals();
-      const proportionalAc = totals.subTotal > 0 ? (nonCounterSubtotal / totals.subTotal) * totals.acCharge : 0;
-      const walletAmount = nonCounterSubtotal + proportionalAc;
+      const proportionalAc = totals.subTotal > 0 ? (nonLiquorSubtotal / totals.subTotal) * totals.acCharge : 0;
+      const walletAmount = nonLiquorSubtotal + proportionalAc;
       await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
     }
 
@@ -1016,15 +1017,16 @@ async function handleSaveOrder() {
     // 3. Update ingredient/product stock (consumption)
     await updateIngredientConsumption(order.items);
 
-    // 4. Record Wallet Transaction (Income, excluding counter/liquor items)
-    const nonCounterSubtotal = finalizedItems
-      .filter(item => !isCounterItem(item))
+    // 4. Record Wallet Transaction (Income, excluding LIQUOR items only)
+    const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
+    const nonLiquorSubtotal = finalizedItems
+      .filter(item => !isLiquor(item))
       .reduce((sum, item) => sum + item.amount, 0);
 
-    if (nonCounterSubtotal > 0) {
+    if (nonLiquorSubtotal > 0) {
       const totals = calculateTotals();
-      const proportionalAc = totals.subTotal > 0 ? (nonCounterSubtotal / totals.subTotal) * totals.acCharge : 0;
-      const walletAmount = nonCounterSubtotal + proportionalAc;
+      const proportionalAc = totals.subTotal > 0 ? (nonLiquorSubtotal / totals.subTotal) * totals.acCharge : 0;
+      const walletAmount = nonLiquorSubtotal + proportionalAc;
       await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
     }
 
