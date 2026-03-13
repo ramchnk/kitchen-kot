@@ -2,6 +2,13 @@
 import { DB } from '../db.js';
 import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast } from '../utils.js';
 
+// Cache master data in memory to drastically reduce DB reads on date change
+let masterItems = [];
+let masterSuppliers = [];
+let masterIngredients = [];
+let masterRecipes = [];
+let masterGrocerySuppliers = [];
+
 export async function renderReportsView(container) {
   container.innerHTML = `
     <div class="view-header">
@@ -41,6 +48,9 @@ export async function renderReportsView(container) {
       <button class="tab-btn" data-tab="expenses">
         <span class="material-symbols-outlined" style="font-size:18px">payments</span> Expense Report
       </button>
+      <button class="tab-btn" data-tab="custom-range">
+        <span class="material-symbols-outlined" style="font-size:18px">calendar_month</span> Custom Range
+      </button>
     </div>
 
     <!-- Tab Contents -->
@@ -50,6 +60,7 @@ export async function renderReportsView(container) {
     <div class="tab-content" id="tab-purchase"></div>
     <div class="tab-content" id="tab-product-stock"></div>
     <div class="tab-content" id="tab-expenses"></div>
+    <div class="tab-content" id="tab-custom-range"></div>
   `;
 
   // Tab switching
@@ -73,19 +84,22 @@ export async function renderReportsView(container) {
 
 async function generateReports(container) {
   const dateStr = document.getElementById('report-date')?.value || todayISO();
-  const orders = await DB.getAll('orders');
-  const items = await DB.getAll('items');
-  const suppliers = await DB.getAll('suppliers');
-  const ingredients = await DB.getAll('ingredients');
-  const allRecipes = await DB.getAll('itemIngredients');
+  
+  // Load master data once per session for optimization
+  if (masterItems.length === 0) masterItems = await DB.getAll('items');
+  if (masterSuppliers.length === 0) masterSuppliers = await DB.getAll('suppliers');
+  if (masterIngredients.length === 0) masterIngredients = await DB.getAll('ingredients');
+  if (masterRecipes.length === 0) masterRecipes = await DB.getAll('itemIngredients');
+  if (masterGrocerySuppliers.length === 0) masterGrocerySuppliers = await DB.getAll('grocerySuppliers');
+
+  // Optimize: Only fetch billed orders instead of EVERY order type
+  const orders = await DB.getByIndex('orders', 'status', 'billed');
   const purchases = await DB.getAll('purchases');
-  const grocerySuppliers = await DB.getAll('grocerySuppliers');
   const expenses = await DB.getAll('expenses');
   const stockAdjustments = await DB.getAll('stockAdjustments');
 
-  // Filter orders by date and billed status
+  // Filter orders by date
   const dayOrders = orders.filter(o => {
-    if (o.status !== 'billed') return false;
     const d = o.billedAt || o.createdAt;
     return d && d.startsWith(dateStr);
   });
@@ -93,17 +107,18 @@ async function generateReports(container) {
   // Filter stock adjustments for the selected date
   const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
-  const itemMap = Object.fromEntries(items.map(i => [i.id, i]));
-  const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
-  const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
-  const grocerySupplierMap = Object.fromEntries(grocerySuppliers.map(s => [s.id, s]));
+  const itemMap = Object.fromEntries(masterItems.map(i => [i.id, i]));
+  const supplierMap = Object.fromEntries(masterSuppliers.map(s => [s.id, s]));
+  const ingredientMap = Object.fromEntries(masterIngredients.map(i => [i.id, i]));
+  const grocerySupplierMap = Object.fromEntries(masterGrocerySuppliers.map(s => [s.id, s]));
 
   generateSalesReport(container, dayOrders, itemMap, dateStr, dayAdjustments);
   generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
-  generateConsumptionReport(container, dayOrders, allRecipes, ingredientMap, dateStr);
+  generateConsumptionReport(container, dayOrders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(dayOrders, purchases, items, dateStr, stockAdjustments);
+  generateProductStockReport(dayOrders, purchases, masterItems, dateStr, stockAdjustments);
   generateExpenseReport(container, expenses, dateStr);
+  generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
 
 function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments = []) {
@@ -282,6 +297,9 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
     }
 
     order.items.forEach(item => {
+      const category = (item.category || itemMap[item.itemId]?.category || '').toUpperCase().trim();
+      if (category === 'LIQUOR') return; // no need to show liquor
+
       const incentivePercent = item.incentivePercent || itemMap[item.itemId]?.incentivePercent || 0;
       const incentiveAmt = (item.amount * incentivePercent) / 100;
 
@@ -303,7 +321,7 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
     });
   });
 
-  const supplierEntries = Object.entries(supplierIncentives);
+  const supplierEntries = Object.entries(supplierIncentives).filter(([id, data]) => Object.keys(data.items).length > 0);
   const supplierList = supplierEntries.map(([id, data]) => ({ ...data, _id: id }));
   const grandTotalIncentive = supplierList.reduce((s, si) => s + si.totalIncentive, 0);
 
@@ -327,9 +345,11 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
             <span class="card-title">${si.name}</span>
             <div style="display:flex;align-items:center;gap:12px">
               <span class="text-success font-mono" style="font-size:1.1rem;font-weight:700">${formatCurrency(si.totalIncentive)}</span>
+              ${si.totalIncentive > 0 ? `
               <button class="btn btn-sm btn-secondary btn-print-incentive" data-waiter-id="${si._id}" title="Print Incentive Slip">
                 <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
               </button>
+              ` : ''}
             </div>
           </div>
           <table class="data-table">
@@ -641,8 +661,8 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
   }
 
   // Calculate previous day for looking up closing stock
-  const prevDate = new Date(dateStr + 'T00:00:00');
-  prevDate.setDate(prevDate.getDate() - 1);
+  const prevDate = new Date(dateStr + 'T00:00:00Z');
+  prevDate.setUTCDate(prevDate.getUTCDate() - 1);
   const prevDateStr = prevDate.toISOString().split('T')[0];
 
   // Previous day's stock adjustments (closing stock from yesterday)
@@ -676,16 +696,16 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     });
 
     // Opening Stock Logic:
-    // 1. If today → reverse-calculate from currentStock: currentStock + sold_today - purchased_today
-    // 2. If past date and previous day has stockAdjustment → use actualClosing from previous day
+    // 1. If previous day has stockAdjustment → ALWAYS use actualClosing from previous day for continuity
+    // 2. If today (and no prior closing) → reverse-calculate from currentStock: currentStock + sold_today - purchased_today
     // 3. Fallback → total purchases all time (initial setup)
     let openingStock;
-    if (isToday(dateStr)) {
-      // Reverse-calculate: current live stock + what was sold - what was purchased = start of day
-      openingStock = (prod.currentStock || 0) + sold - purchasedToday;
-    } else if (prevDayMap[prod.id]) {
+    if (prevDayMap[prod.id]) {
       // Previous day's actual closing stock = today's opening
       openingStock = prevDayMap[prod.id].actualClosing;
+    } else if (isToday(dateStr)) {
+      // Reverse-calculate: current live stock + what was sold - what was purchased = start of day
+      openingStock = (prod.currentStock || 0) + sold - purchasedToday;
     } else {
       // Fallback: total purchased BEFORE this date (initial setup)
       openingStock = priorProductPurchases
@@ -855,38 +875,24 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
 
       // Calculate adjustment (unbilled counter sales)
       const adjustedQty = prodData.expectedClosing - actualClosing;
-      if (adjustedQty > 0) {
-        // Positive adjustment = items sold without bill (counter sales)
-        const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
-        await DB.add('stockAdjustments', {
-          productId: productId,
-          productName: product.name,
-          category: product.category,
-          date: dateStr,
-          openingStock: prodData.openingStock,
-          expectedClosing: prodData.expectedClosing,
-          actualClosing: actualClosing,
-          adjustedQty: adjustedQty,
-          adjustedAmount: adjustedAmount,
-          sellingPrice: product.sellingPrice || 0,
-          createdAt: new Date().toISOString(),
-        });
-        adjustmentCount++;
-      } else if (adjustedQty < 0) {
-        // Negative adjustment = excess stock (received without purchase entry, etc.)
-        await DB.add('stockAdjustments', {
-          productId: productId,
-          productName: product.name,
-          category: product.category,
-          date: dateStr,
-          openingStock: prodData.openingStock,
-          expectedClosing: prodData.expectedClosing,
-          actualClosing: actualClosing,
-          adjustedQty: adjustedQty,
-          adjustedAmount: adjustedQty * (product.sellingPrice || 0),
-          sellingPrice: product.sellingPrice || 0,
-          createdAt: new Date().toISOString(),
-        });
+      const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
+
+      // Always add an adjustment record so next day can pull the correct actualClosing
+      await DB.add('stockAdjustments', {
+        productId: productId,
+        productName: product.name,
+        category: product.category,
+        date: dateStr,
+        openingStock: prodData.openingStock,
+        expectedClosing: prodData.expectedClosing,
+        actualClosing: actualClosing,
+        adjustedQty: adjustedQty,
+        adjustedAmount: adjustedAmount,
+        sellingPrice: product.sellingPrice || 0,
+        createdAt: new Date().toISOString(),
+      });
+
+      if (adjustedQty !== 0) {
         adjustmentCount++;
       }
     }
@@ -1010,4 +1016,193 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
 
     printContent(printHTML, 'a4');
   });
+}
+
+function generateCustomRangeReport(container, allOrders, itemMap, supplierMap) {
+  const tab = document.getElementById('tab-custom-range');
+  
+  // store date values if they exist
+  const existingStart = document.getElementById('custom-start-date')?.value;
+  const existingEnd = document.getElementById('custom-end-date')?.value;
+  
+  const d = new Date();
+  const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+  const today = d.toISOString().split('T')[0];
+  
+  const startVal = existingStart || startOfMonth;
+  const endVal = existingEnd || today;
+
+  if (!tab.querySelector('.custom-range-controls')) {
+    tab.innerHTML = `
+      <div class="card mb-4 custom-range-controls" style="background:var(--bg-elevated); padding:16px;">
+        <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap">
+          <div>
+            <label class="form-label" style="margin-bottom:4px;">From Date</label>
+            <input type="date" class="form-input" id="custom-start-date" value="${startVal}">
+          </div>
+          <div>
+            <label class="form-label" style="margin-bottom:4px;">To Date</label>
+            <input type="date" class="form-input" id="custom-end-date" value="${endVal}">
+          </div>
+          <button class="btn btn-primary" id="btn-generate-custom-range">
+            <span class="material-symbols-outlined">analytics</span> Generate Range Report
+          </button>
+        </div>
+      </div>
+      <div id="custom-range-results"></div>
+    `;
+
+    const btn = tab.querySelector('#btn-generate-custom-range');
+    btn.addEventListener('click', () => {
+      renderCustomRangeData(allOrders, itemMap, supplierMap);
+    });
+  }
+
+  // Render immediately with defaults or current values
+  renderCustomRangeData(allOrders, itemMap, supplierMap);
+}
+
+function renderCustomRangeData(allOrders, itemMap, supplierMap) {
+  const resultsContainer = document.getElementById('custom-range-results');
+  if (!resultsContainer) return;
+
+  const startStr = document.getElementById('custom-start-date').value;
+  const endStr = document.getElementById('custom-end-date').value;
+
+  if (!startStr || !endStr) {
+    resultsContainer.innerHTML = '<p class="text-danger">Please select both start and end dates.</p>';
+    return;
+  }
+
+  // Filter orders by billed status and within date range inclusive
+  const rangeOrders = allOrders.filter(o => {
+    if (o.status !== 'billed') return false;
+    const d = (o.billedAt || o.createdAt || '').substring(0, 10);
+    if (!d) return false;
+    return d >= startStr && d <= endStr;
+  });
+
+  if (rangeOrders.length === 0) {
+    resultsContainer.innerHTML = `
+      <div class="card">
+        <div class="empty-state" style="padding:40px">
+          <span class="material-symbols-outlined">event_note</span>
+          <p>No billed orders found in this date range (${formatDate(startStr)} to ${formatDate(endStr)}).</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const totalAmount = rangeOrders.reduce((s, o) => s + o.totalAmount, 0);
+
+  // 1. Item Sales Aggregation
+  const itemSales = {};
+  // 2. Waiter Sales Aggregation
+  const waiterSales = {};
+
+  rangeOrders.forEach(order => {
+    // Waiter overall
+    if (order.supplierId) {
+      const wait = supplierMap[order.supplierId];
+      if (wait) {
+        if (!waiterSales[order.supplierId]) {
+          waiterSales[order.supplierId] = { name: wait.name, totalAmount: 0, orderCount: 0 };
+        }
+        waiterSales[order.supplierId].totalAmount += order.totalAmount;
+        waiterSales[order.supplierId].orderCount += 1;
+      }
+    }
+
+    // Items
+    order.items.forEach(item => {
+      const key = item.itemId;
+      if (!itemSales[key]) {
+        itemSales[key] = {
+          name: item.itemName,
+          category: item.category || itemMap[item.itemId]?.category || '',
+          quantity: 0,
+          amount: 0
+        };
+      }
+      itemSales[key].quantity += item.quantity;
+      itemSales[key].amount += item.amount;
+    });
+  });
+
+  const sortedItems = Object.values(itemSales).sort((a, b) => b.amount - a.amount);
+  const sortedWaiters = Object.values(waiterSales).sort((a, b) => b.totalAmount - a.totalAmount);
+
+  resultsContainer.innerHTML = `
+    <div class="stats-grid mb-4">
+      <div class="stat-card">
+        <div class="stat-icon green"><span class="material-symbols-outlined">payments</span></div>
+        <div>
+          <div class="stat-value">${formatCurrency(totalAmount)}</div>
+          <div class="stat-label">Total Sales (Range)</div>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue"><span class="material-symbols-outlined">receipt</span></div>
+        <div>
+          <div class="stat-value">${rangeOrders.length}</div>
+          <div class="stat-label">Total Bills (Range)</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:20px;">
+      <!-- Item Sales -->
+      <div class="card" style="margin-bottom:0px;">
+        <div class="card-header">
+          <span class="card-title">🍽️ Items Sold</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th>Category</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedItems.map(item => `
+              <tr>
+                <td><strong>${item.name}</strong></td>
+                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
+                <td class="text-right font-mono">${item.quantity}</td>
+                <td class="text-right amount font-mono">${formatCurrency(item.amount)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Waiter Sales -->
+      <div class="card" style="margin-bottom:0px;align-self: flex-start;">
+        <div class="card-header">
+          <span class="card-title">👨‍🍳 Waiter Performance</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Waiter Name</th>
+              <th class="text-right">Bills Handled</th>
+              <th class="text-right">Total Sales</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedWaiters.length > 0 ? sortedWaiters.map(w => `
+              <tr>
+                <td><strong>${w.name}</strong></td>
+                <td class="text-right font-mono" style="color:var(--text-secondary)">${w.orderCount}</td>
+                <td class="text-right amount font-mono" style="color:var(--success); font-weight:700;">${formatCurrency(w.totalAmount)}</td>
+              </tr>
+            `).join('') : `<tr><td colspan="3" class="text-muted" style="text-align:center;padding:20px;">No waiter data recorded in bills layer</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }

@@ -3,8 +3,7 @@ import { Auth } from '../auth.js';
 import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateBillPrintHTML, isCounterItem } from '../utils.js';
 
 export async function renderActiveOrdersView(container) {
-  const orders = (await DB.getAll('orders'))
-    .filter(o => o.status === 'open')
+  const orders = (await DB.getByIndex('orders', 'status', 'open'))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const suppliers = await DB.getAll('suppliers');

@@ -38,13 +38,10 @@ function calculateTotal() {
 }
 
 export async function renderOrderView(container) {
-  suppliers = (await DB.getAll('suppliers')).filter(s => s.active);
-  tables = (await DB.getAll('tables')).filter(t => t.active);
-  menuItems = (await DB.getAll('items')).filter(i => i.active);
-
-  // Find tables with active/open orders for visual highlighting
-  const allOrders = await DB.getAll('orders');
-  activeTableIds = new Set(allOrders.filter(o => o.status === 'open').map(o => o.tableId));
+  // Master data caching - only load once per session
+  if (suppliers.length === 0) suppliers = (await DB.getAll('suppliers')).filter(s => s.active);
+  if (tables.length === 0) tables = (await DB.getAll('tables')).filter(t => t.active);
+  if (menuItems.length === 0) menuItems = (await DB.getAll('items')).filter(i => i.active);
 
   // Always load liquor items if account has liquor enabled
   const account = Auth.getCurrentAccount();
@@ -211,19 +208,13 @@ export async function renderOrderView(container) {
 }
 
 function setupOrderEvents() {
-  // Table search (Step 1) — after selection, check for active order then jump to Waiter
+  // Table search (Step 1) — after selection, jump to Waiter
   setupSearchDropdown('table-search', 'table-dropdown', 'table-id-input',
-    tables, (t) => t.name, (t) => t.id, async (t) => {
+    tables, (t) => t.name, (t) => t.id, (t) => {
       orderState.tableId = t.id;
       document.getElementById('summary-table').textContent = t.name;
-      // Check if this table has an active/open order
-      await loadExistingOrderForTable(t.id);
     }, 'supplier-search', (item) => {
-      const isActive = activeTableIds.has(item.id);
-      return `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;${isActive ? 'color:#d97706;font-weight:600' : ''}">
-        <span>${item.name}</span>
-        ${isActive ? '<span class="status-badge" style="background:#f59e0b20;color:#d97706;font-size:0.65rem;font-weight:700">⚡ ACTIVE</span>' : ''}
-      </div>`;
+      return `<div>${item.name}</div>`;
     });
 
   // Waiter search (Step 2) — after selection, jump to Item Search
@@ -1106,8 +1097,8 @@ function updateOrderTitle() {
 
 // Load existing open order for a table (if any)
 async function loadExistingOrderForTable(tableId) {
-  const allOrders = await DB.getAll('orders');
-  const activeOrder = allOrders.find(o => o.tableId === tableId && o.status === 'open');
+  const activeOrders = await DB.getByIndex('orders', 'status', 'open');
+  const activeOrder = activeOrders.find(o => o.tableId === tableId);
 
   if (activeOrder) {
     // Pre-fill the order with existing data
@@ -1174,9 +1165,9 @@ async function updateIngredientConsumption(orderItems) {
 // ===== Completed Bills Modal =====
 async function showCompletedBills() {
   const today = todayISO();
-  const allOrders = await DB.getAll('orders');
-  const billedOrders = allOrders
-    .filter(o => o.status === 'billed' && (o.billedAt || o.createdAt || '').startsWith(today))
+  const billedOrdersQuery = await DB.getByIndex('orders', 'status', 'billed');
+  const billedOrders = billedOrdersQuery
+    .filter(o => (o.billedAt || o.createdAt || '').startsWith(today))
     .sort((a, b) => (b.billedAt || b.createdAt || '').localeCompare(a.billedAt || a.createdAt || ''));
 
   const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));

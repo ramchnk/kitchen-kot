@@ -225,7 +225,9 @@ export function generateBillPrintHTML(order, supplierName, tableName) {
 export function generateWaiterIncentivePrintHTML(waiterData, dateStr) {
   const formattedDate = formatDate(dateStr);
 
-  const itemsHTML = Object.values(waiterData.items).map(item => `
+  const itemsHTML = Object.values(waiterData.items)
+    .filter(item => item.incentiveAmount > 0)
+    .map(item => `
     <tr>
       <td>${item.name}</td>
       <td style="text-align:center">${item.quantity}</td>

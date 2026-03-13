@@ -32,12 +32,31 @@ function counterDoc(counterName) {
 
 // ---- Generic CRUD Operations ----
 
+// Local cache to deeply optimize repetitive Firestore reads and prevent Quota issues
+const localCache = {};
+const CACHE_TTL_MS = 30000; // Cache valid for 30 seconds
+
+function invalidateCache(storeName) {
+  delete localCache[storeName];
+}
+
 async function getAll(storeName) {
+  const cached = localCache[storeName];
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    return cached.data;
+  }
   const snap = await getDocs(tenantCollection(storeName));
-  return snap.docs.map(d => d.data());
+  const data = snap.docs.map(d => d.data());
+  localCache[storeName] = { data, timestamp: Date.now() };
+  return data;
 }
 
 async function getById(storeName, id) {
+  const cached = localCache[storeName];
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    const item = cached.data.find(d => d.id === id);
+    if (item) return item;
+  }
   const snap = await getDoc(tenantDoc(storeName, id));
   return snap.exists() ? snap.data() : undefined;
 }
@@ -52,17 +71,20 @@ async function add(storeName, data) {
   });
   data.id = id;
   await setDoc(tenantDoc(storeName, id), data);
+  invalidateCache(storeName);
   return id;
 }
 
 async function update(storeName, data) {
   if (!data.id && data.id !== 0) throw new Error('Data must have an id field');
   await setDoc(tenantDoc(storeName, data.id), data);
+  invalidateCache(storeName);
   return data.id;
 }
 
 async function remove(storeName, id) {
   await deleteDoc(tenantDoc(storeName, id));
+  invalidateCache(storeName);
 }
 
 async function getByIndex(storeName, indexName, value) {
@@ -77,6 +99,7 @@ async function clearStore(storeName) {
   const batch = writeBatch(firestore);
   snap.docs.forEach(d => batch.delete(d.ref));
   await batch.commit();
+  invalidateCache(storeName);
 }
 
 // ---- Order Number Generator ----
