@@ -125,7 +125,7 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const tab = document.getElementById('tab-sales');
 
   const totalBills = orders.length;
-  const totalAmount = orders.reduce((s, o) => s + o.totalAmount, 0);
+  const rawTotalAmount = orders.reduce((s, o) => s + o.totalAmount, 0);
 
   // Item-wise breakdown
   const itemSales = {};
@@ -141,9 +141,9 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   });
 
   const sortedItems = Object.values(itemSales).sort((a, b) => b.amount - a.amount);
-  const totalQty = sortedItems.reduce((s, i) => s + i.quantity, 0);
+  const rawTotalQty = sortedItems.reduce((s, i) => s + i.quantity, 0);
 
-  // Split into Liquor and Others
+  // Extract Liquor to exclude it from the reports
   const liquorItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() === 'LIQUOR');
   const otherItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() !== 'LIQUOR');
 
@@ -151,6 +151,10 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const liquorAmount = liquorItems.reduce((s, i) => s + i.amount, 0);
   const otherQty = otherItems.reduce((s, i) => s + i.quantity, 0);
   const otherAmount = otherItems.reduce((s, i) => s + i.amount, 0);
+
+  // Exclude Liquor from metrics
+  const totalQty = rawTotalQty - liquorQty;
+  const totalAmount = rawTotalAmount - liquorAmount;
 
   // Stock Adjustment (Counter/Unbilled Sales)
   const adjustmentItems = dayAdjustments
@@ -240,11 +244,10 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       `}
     </div>
 
-    ${sortedItems.length === 0 && adjustmentItems.length === 0 ?
+    ${otherItems.length === 0 && adjustmentItems.length === 0 ?
       '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">point_of_sale</span><p>No sales for this date</p></div></div>' :
       `
-        ${buildSectionTable('Liquor Sales', '🍺', liquorItems, liquorQty, liquorAmount)}
-        ${buildSectionTable('Other Sales', '🍽️', otherItems, otherQty, otherAmount)}
+        ${buildSectionTable('Item Sales', '🍽️', otherItems, otherQty, otherAmount)}
         ${buildSectionTable('Counter Sales (Stock Adjusted)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
           'style="border-left:3px solid #d97706"')}
 
