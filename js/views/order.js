@@ -213,6 +213,7 @@ function setupOrderEvents() {
     tables, (t) => t.name, (t) => t.id, (t) => {
       orderState.tableId = t.id;
       document.getElementById('summary-table').textContent = t.name;
+      loadExistingOrderForTable(t.id);
     }, 'supplier-search', (item) => {
       return `<div>${item.name}</div>`;
     });
@@ -235,14 +236,7 @@ function setupOrderEvents() {
 
   // Clear order
   document.getElementById('btn-clear-order')?.addEventListener('click', () => {
-    resetOrder();
-    renderOrderItems();
-    updateSummary();
-    document.getElementById('table-search').value = '';
-    document.getElementById('supplier-search').value = '';
-    document.getElementById('summary-table').textContent = '—';
-    document.getElementById('summary-supplier').textContent = '—';
-    document.getElementById('table-search')?.focus();
+    resetOrderAndUI();
     showToast('Order cleared', 'info');
   });
 
