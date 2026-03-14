@@ -116,7 +116,7 @@ async function generateReports(container) {
   generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
   generateConsumptionReport(container, dayOrders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(dayOrders, purchases, masterItems, dateStr, stockAdjustments);
+  generateProductStockReport(dayOrders, purchases, masterItems, dateStr, stockAdjustments, orders);
   generateExpenseReport(container, expenses, dateStr);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
@@ -168,9 +168,21 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const adjustmentQty = adjustmentItems.reduce((s, i) => s + i.quantity, 0);
   const adjustmentAmount = adjustmentItems.reduce((s, i) => s + i.amount, 0);
 
+  // Stock Adjustment (Surplus - actual stock > expected stock)
+  const negativeAdjustmentItems = dayAdjustments
+    .filter(a => a.adjustedQty < 0)
+    .map(a => ({
+      name: a.productName,
+      category: a.category,
+      quantity: a.adjustedQty,
+      amount: a.adjustedAmount,
+    }));
+  const negativeAdjustmentQty = negativeAdjustmentItems.reduce((s, i) => s + i.quantity, 0);
+  const negativeAdjustmentAmount = negativeAdjustmentItems.reduce((s, i) => s + i.amount, 0);
+
   // Grand totals including adjustments
-  const grandTotalQty = totalQty + adjustmentQty;
-  const grandTotalAmount = totalAmount + adjustmentAmount;
+  const grandTotalQty = totalQty + adjustmentQty + negativeAdjustmentQty;
+  const grandTotalAmount = totalAmount + adjustmentAmount + negativeAdjustmentAmount;
 
   // Helper to build a section table
   const buildSectionTable = (title, icon, items, sectionQty, sectionAmount, extraStyle = '') => {
@@ -225,16 +237,16 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Sales ${adjustmentAmount > 0 ? '(incl. Counter)' : ''}</div></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Sales ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(incl. Counter)' : ''}</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>
         <div><div class="stat-value">${grandTotalQty}</div><div class="stat-label">Items Sold</div></div>
       </div>
-      ${adjustmentAmount > 0 ? `
+      ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? `
       <div class="stat-card">
-        <div class="stat-icon" style="background:#f59e0b20;color:#d97706"><span class="material-symbols-outlined">storefront</span></div>
-        <div><div class="stat-value">${formatCurrency(adjustmentAmount)}</div><div class="stat-label">Counter Sales (Unbilled)</div></div>
+        <div class="stat-icon" style="background:#f59e0b20;color:#d97706"><span class="material-symbols-outlined">swap_horiz</span></div>
+        <div><div class="stat-value">${formatCurrency(adjustmentAmount + negativeAdjustmentAmount)}</div><div class="stat-label">Net Counter Margin</div></div>
       </div>
       ` : `
       <div class="stat-card">
@@ -244,26 +256,35 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       `}
     </div>
 
-    ${otherItems.length === 0 && adjustmentItems.length === 0 ?
+    ${otherItems.length === 0 && adjustmentItems.length === 0 && negativeAdjustmentItems.length === 0 ?
       '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">point_of_sale</span><p>No sales for this date</p></div></div>' :
       `
         ${buildSectionTable('Item Sales', '🍽️', otherItems, otherQty, otherAmount)}
-        ${buildSectionTable('Counter Sales (Stock Adjusted)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
+        ${buildSectionTable('Counter Sales (Unbilled)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
           'style="border-left:3px solid #d97706"')}
+        ${buildSectionTable('Stock Surplus (Overstock)', '📉', negativeAdjustmentItems, negativeAdjustmentQty, negativeAdjustmentAmount,
+          'style="border-left:3px solid var(--danger)"')}
 
         <div class="card">
           <table class="data-table">
             <tfoot>
-              ${adjustmentAmount > 0 ? `
               <tr style="font-weight:600;font-size:0.9rem;color:var(--text-secondary)">
                 <td class="text-right" style="padding:12px 16px">Billed Sales</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${totalQty}</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(totalAmount)}</td>
               </tr>
+              ${adjustmentAmount > 0 ? `
               <tr style="font-weight:600;font-size:0.9rem;color:#d97706">
                 <td class="text-right" style="padding:12px 16px">+ Counter Sales (Unbilled)</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${adjustmentQty}</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(adjustmentAmount)}</td>
+              </tr>
+              ` : ''}
+              ${negativeAdjustmentAmount < 0 ? `
+              <tr style="font-weight:600;font-size:0.9rem;color:var(--danger)">
+                <td class="text-right" style="padding:12px 16px">- Stock Surplus / Returned</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${Math.abs(negativeAdjustmentQty)}</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(negativeAdjustmentAmount)}</td>
               </tr>
               ` : ''}
               <tr style="font-weight:700;font-size:1.05rem">
@@ -652,7 +673,7 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
 }
 
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
-function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, allStockAdjustments = []) {
+function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, allStockAdjustments = [], allOrders = []) {
   const tab = document.getElementById('tab-product-stock');
   const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
 
@@ -663,19 +684,29 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     return;
   }
 
-  // Calculate previous day for looking up closing stock
-  const prevDate = new Date(dateStr + 'T00:00:00Z');
-  prevDate.setUTCDate(prevDate.getUTCDate() - 1);
-  const prevDateStr = prevDate.toISOString().split('T')[0];
+  // Find stock adjustments that happened strictly before the selected date
+  const pastAdjustments = allStockAdjustments.filter(a => a.date < dateStr);
 
-  // Previous day's stock adjustments (closing stock from yesterday)
-  const prevDayAdjustments = allStockAdjustments.filter(a => a.date === prevDateStr);
-  const prevDayMap = Object.fromEntries(prevDayAdjustments.map(a => [a.productId, a]));
+  // Find stock adjustments that happened exactly on the selected date
+  const todayAdjustments = allStockAdjustments.filter(a => a.date === dateStr);
+  const todayAdjMap = Object.fromEntries(todayAdjustments.map(a => [a.productId, a]));
 
   // Product purchases BEFORE the selected date (for opening stock fallback)
   const priorProductPurchases = allPurchases.filter(p => p.productId && p.date < dateStr);
   // Purchases on the selected date
   const dayPurchases = allPurchases.filter(p => p.date === dateStr && p.productId);
+
+  // Pre-calculate prior sales for all items before dateStr
+  const priorOrders = allOrders.filter(o => {
+    const d = (o.billedAt || o.createdAt || '').substring(0, 10);
+    return d < dateStr;
+  });
+  const priorSalesMap = {};
+  priorOrders.forEach(order => {
+    (order.items || []).forEach(item => {
+      priorSalesMap[item.itemId] = (priorSalesMap[item.itemId] || 0) + item.quantity;
+    });
+  });
 
   const productData = products.map(prod => {
     // Purchased on selected date
@@ -699,25 +730,46 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     });
 
     // Opening Stock Logic:
-    // 1. If previous day has stockAdjustment → ALWAYS use actualClosing from previous day for continuity
-    // 2. If today (and no prior closing) → reverse-calculate from currentStock: currentStock + sold_today - purchased_today
-    // 3. Fallback → total purchases all time (initial setup)
-    let openingStock;
-    if (prevDayMap[prod.id]) {
-      // Previous day's actual closing stock = today's opening
-      openingStock = prevDayMap[prod.id].actualClosing;
-    } else if (isToday(dateStr)) {
-      // Reverse-calculate: current live stock + what was sold - what was purchased = start of day
-      openingStock = (prod.currentStock || 0) + sold - purchasedToday;
+    // We roll forward from the LATEST available stock adjustment.
+    // If no past stock adjustment exists for this product, we roll forward from the beginning of time.
+    let openingStock = 0;
+
+    const prodPastAdjustments = pastAdjustments
+      .filter(a => a.productId === prod.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    if (prodPastAdjustments.length > 0) {
+      const latestAdj = prodPastAdjustments[0];
+      const anchorDate = latestAdj.date;
+      const baseStock = latestAdj.actualClosing;
+
+      // Sum purchases from (anchorDate to dateStr) exclusive of anchorDate, exclusive of dateStr
+      const interveningPurchases = allPurchases
+        .filter(p => p.productId === prod.id && p.date > anchorDate && p.date < dateStr)
+        .reduce((s, p) => s + (p.quantity || 0), 0);
+      
+      // Sum sales from (anchorDate to dateStr) exclusive of anchorDate, exclusive of dateStr
+      const interveningSales = allOrders.filter(o => {
+        const d = (o.billedAt || o.createdAt || '').substring(0, 10);
+        return d > anchorDate && d < dateStr;
+      }).reduce((sum, o) => {
+        const item = o.items.find(i => i.itemId === prod.id);
+        return sum + (item ? item.quantity : 0);
+      }, 0);
+
+      openingStock = baseStock + interveningPurchases - interveningSales;
     } else {
-      // Fallback: total purchased BEFORE this date (initial setup)
-      openingStock = priorProductPurchases
+      // Fallback: total purchased BEFORE this date - total sold BEFORE this date
+      const priorPurchased = priorProductPurchases
         .filter(p => p.productId === prod.id)
         .reduce((s, p) => s + (p.quantity || 0), 0);
+      const priorSold = priorSalesMap[prod.id] || 0;
+      openingStock = priorPurchased - priorSold;
     }
 
     // Expected Closing = Opening + Purchased Today - Sold
     const expectedClosing = Math.max(0, openingStock + purchasedToday - sold);
+    const actualClosing = todayAdjMap[prod.id] ? todayAdjMap[prod.id].actualClosing : expectedClosing;
 
     return {
       id: prod.id,
@@ -730,6 +782,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       sold,
       saleAmount,
       expectedClosing,
+      actualClosing,
     };
   });
 
@@ -804,7 +857,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
                 <td class="text-right" style="background:var(--primary-light, #e0e7ff)">
                   <input type="number" class="form-input closing-stock-input" 
                     data-product-id="${p.id}" 
-                    value="${p.expectedClosing}" 
+                    value="${p.actualClosing}" 
                     min="0" 
                     style="width:80px;text-align:center;padding:4px 8px;font-weight:700;font-size:0.95rem;margin:0 0 0 auto;display:block"
                   >
