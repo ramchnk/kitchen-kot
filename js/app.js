@@ -3,7 +3,7 @@ import { DB } from './db.js';
 import { Auth } from './auth.js';
 import { registerShortcut } from './keyboard.js';
 import { initThemeSystem } from './themes.js';
-import { showToast } from './utils.js';
+import { showToast, formatCurrency, todayISO } from './utils.js';
 import { renderOrderView, destroyOrderView } from './views/order.js';
 import { renderActiveOrdersView } from './views/activeOrders.js';
 import { renderItemsView } from './views/items.js';
@@ -148,6 +148,50 @@ function updateSidebarUserInfo(user, account) {
         joinCodeSection.classList.add('hidden');
     }
 }
+// ---- Live Sales Stats in Sidebar ----
+async function updateSidebarSales() {
+    const liquorEl = document.getElementById('sidebar-liquor-sales');
+    const kitchenEl = document.getElementById('sidebar-kitchen-sales');
+    if (!liquorEl || !kitchenEl) return;
+
+    try {
+        const today = todayISO();
+        const orders = await DB.getAll('orders');
+        // We only count 'billed' orders for today's sales
+        const todayOrders = orders.filter(o => 
+            (o.billedAt || o.createdAt || '').substring(0, 10) === today && o.status === 'billed'
+        );
+
+        let liquorTotal = 0;
+        let kitchenTotal = 0;
+
+        todayOrders.forEach(order => {
+            (order.items || []).forEach(item => {
+                const category = (item.category || '').toUpperCase().trim();
+                const isLiquor = category === 'LIQUOR' || item.isLiquor;
+                
+                if (isLiquor) {
+                    liquorTotal += (item.amount || 0);
+                } else {
+                    kitchenTotal += (item.amount || 0);
+                }
+            });
+            // Add AC Charges to Kitchen/General category
+            if (order.acCharge) {
+                kitchenTotal += (order.acCharge || 0);
+            }
+        });
+
+        liquorEl.textContent = formatCurrency(liquorTotal);
+        kitchenEl.textContent = formatCurrency(kitchenTotal);
+    } catch (err) {
+        console.error('Error updating sidebar sales:', err);
+    }
+}
+
+// Make it globally accessible for view modules
+window.updateSidebarSales = updateSidebarSales;
+window.addEventListener('orders-updated', updateSidebarSales);
 
 // ---- Show Auth Page / Show App ----
 function showAuthPage() {
@@ -313,6 +357,9 @@ async function init() {
 
             // Navigate to initial route
             navigate(getViewFromHash());
+
+            // Initial sales update
+            updateSidebarSales();
         } else {
             // User is logged out — show auth page
             showAuthPage();

@@ -166,6 +166,45 @@ a {
   font-weight: 500;
 }
 
+.sidebar-sales-stats {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: fadeIn 0.4s ease;
+}
+
+.sidebar-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.sidebar-stat-item:hover {
+  border-color: var(--accent-glow-strong);
+  background: var(--bg-hover);
+}
+
+.sidebar-stat-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-stat-value {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-light);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* Sidebar Navigation */
 .sidebar-nav {
   flex: 1;

@@ -1073,6 +1073,9 @@ function resetOrderAndUI() {
   updateSummary();
   updateOrderTitle();
   document.getElementById('table-search')?.focus();
+
+  // Notify listeners to refresh reports/stats (like sidebar sales)
+  window.dispatchEvent(new CustomEvent('orders-updated'));
 }
 
 // Update the title bar to reflect editing vs new order state
