@@ -212,8 +212,6 @@ export function generateBillPrintHTML(order, supplierName, tableName) {
       <tbody>${itemsHTML}</tbody>
     </table>
     <div class="print-total">
-      <div><span>Sub Total:</span><span>${formatCurrency(order.subTotal || order.totalAmount)}</span></div>
-      ${order.acCharge ? `<div><span>AC Charge (10%):</span><span>${formatCurrency(order.acCharge)}</span></div>` : ''}
       <div class="grand-total"><span>TOTAL:</span><span>${formatCurrency(order.totalAmount)}</span></div>
     </div>
     <div class="print-footer">

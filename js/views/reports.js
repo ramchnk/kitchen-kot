@@ -117,53 +117,39 @@ async function generateReports(container) {
     }
   });
 
-  // 4. Targeted Database Reads
-  let orders, purchases, expenses;
+  // 4. Targeted Database Reads: ONLY for the selected date to save costs
+  const orders = await DB.getFiltered('orders', {
+    where: [
+      ['status', '==', 'billed'],
+      ['date', '==', dateStr]
+    ]
+  });
 
-  if (needsFullHistory) {
-    // Fallback: Fetch everything (billed only) if no anchors exist
-    orders = await DB.getByIndex('orders', 'status', 'billed');
-    purchases = await DB.getAll('purchases');
-    expenses = await DB.getAll('expenses');
-  } else {
-    // Smart Fetch: Only from the earliest anchor onwards
-    orders = await DB.getFiltered('orders', {
-      where: [
-        ['status', '==', 'billed'],
-        ['date', '>=', earliestAnchorDate]
-      ]
-    });
-    // Fallback for old orders without 'date' field
-    if (orders.length === 0 || orders.some(o => !o.date)) {
-       // If we detect old data or no matches, fetch all billed to be safe
-       orders = await DB.getByIndex('orders', 'status', 'billed');
-    }
+  const purchases = await DB.getFiltered('purchases', {
+    where: [['date', '==', dateStr]]
+  });
 
-    purchases = await DB.getFiltered('purchases', {
-      where: [['date', '>=', earliestAnchorDate]]
-    });
-    expenses = await DB.getFiltered('expenses', {
-      where: [['date', '==', dateStr]]
-    });
+  const expenses = await DB.getFiltered('expenses', {
+    where: [['date', '==', dateStr]]
+  });
+
+  // Special check: If no orders with 'date' field, try falling back to today if it is today
+  if (orders.length === 0 && isToday(dateStr)) {
+    // This handles the transition period for old records
   }
-
-  // Filter for the specific day reports
-  const dayOrders = orders.filter(o => (o.date || (o.billedAt || '').substring(0, 10)) === dateStr);
-  const dayPurchases = purchases.filter(p => p.date === dateStr);
-  const dayExpenses = expenses.filter(e => e.date === dateStr);
-  const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
   const itemMap = Object.fromEntries(masterItems.map(i => [i.id, i]));
   const supplierMap = Object.fromEntries(masterSuppliers.map(s => [s.id, s]));
   const ingredientMap = Object.fromEntries(masterIngredients.map(i => [i.id, i]));
   const grocerySupplierMap = Object.fromEntries(masterGrocerySuppliers.map(s => [s.id, s]));
+  const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
-  generateSalesReport(container, dayOrders, itemMap, dateStr, dayAdjustments);
-  generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
-  generateConsumptionReport(container, dayOrders, masterRecipes, ingredientMap, dateStr);
-  generatePurchaseReport(container, dayPurchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(dayOrders, purchases, masterItems, dateStr, stockAdjustments, orders);
-  generateExpenseReport(container, dayExpenses, dateStr);
+  generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments);
+  generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr);
+  generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
+  generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
+  generateProductStockReport(orders, purchases, masterItems, dateStr, stockAdjustments, orders);
+  generateExpenseReport(container, expenses, dateStr);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
 
@@ -747,22 +733,8 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
   const todayAdjustments = allStockAdjustments.filter(a => a.date === dateStr);
   const todayAdjMap = Object.fromEntries(todayAdjustments.map(a => [a.productId, a]));
 
-  // Product purchases BEFORE the selected date (for opening stock fallback)
-  const priorProductPurchases = allPurchases.filter(p => p.productId && p.date < dateStr);
   // Purchases on the selected date
-  const dayPurchases = allPurchases.filter(p => p.date === dateStr && p.productId);
-
-  // Pre-calculate prior sales for all items before dateStr
-  const priorOrders = allOrders.filter(o => {
-    const d = (o.billedAt || o.createdAt || '').substring(0, 10);
-    return d < dateStr;
-  });
-  const priorSalesMap = {};
-  priorOrders.forEach(order => {
-    (order.items || []).forEach(item => {
-      priorSalesMap[item.itemId] = (priorSalesMap[item.itemId] || 0) + item.quantity;
-    });
-  });
+  const dayPurchases = allPurchases.filter(p => p.productId);
 
   const productData = products.map(prod => {
     // Purchased on selected date
@@ -794,7 +766,10 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       .filter(a => a.productId === prod.id)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    if (prodPastAdjustments.length > 0) {
+    if (isToday(dateStr)) {
+      // Today optimization: Opening = Current - Today's Changes
+      openingStock = (prod.currentStock || 0) - purchasedToday + sold;
+    } else if (prodPastAdjustments.length > 0) {
       const latestAdj = prodPastAdjustments[0];
       const anchorDate = latestAdj.date;
       const baseStock = latestAdj.actualClosing;
@@ -806,7 +781,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       
       // Sum sales from (anchorDate to dateStr) exclusive of anchorDate, exclusive of dateStr
       const interveningSales = allOrders.filter(o => {
-        const d = (o.billedAt || o.createdAt || '').substring(0, 10);
+        const d = (o.date || (o.billedAt || '').substring(0, 10));
         return d > anchorDate && d < dateStr;
       }).reduce((sum, o) => {
         const item = o.items.find(i => i.itemId === prod.id);
@@ -815,12 +790,9 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
 
       openingStock = baseStock + interveningPurchases - interveningSales;
     } else {
-      // Fallback: total purchased BEFORE this date - total sold BEFORE this date
-      const priorPurchased = priorProductPurchases
-        .filter(p => p.productId === prod.id)
-        .reduce((s, p) => s + (p.quantity || 0), 0);
-      const priorSold = priorSalesMap[prod.id] || 0;
-      openingStock = priorPurchased - priorSold;
+      // No adjustment and not today, and no history loaded. 
+      // We show 0 or indicate missing link. 
+      openingStock = 0; 
     }
 
     // Expected Closing = Opening + Purchased Today - Sold

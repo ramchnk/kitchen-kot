@@ -23,14 +23,7 @@ function resetOrder() {
 
 function calculateTotals() {
   const subTotal = orderState.items.reduce((sum, item) => sum + item.amount, 0);
-  let acCharge = 0;
-  if (orderState.tableId) {
-    const table = tables.find(t => t.id === orderState.tableId);
-    if (table && table.name.trim().toUpperCase().startsWith('AC')) {
-      acCharge = subTotal * 0.10;
-    }
-  }
-  return { subTotal, acCharge, totalAmount: subTotal + acCharge };
+  return { subTotal, acCharge: 0, totalAmount: subTotal };
 }
 
 function calculateTotal() {
@@ -174,10 +167,7 @@ export async function renderOrderView(container) {
             <span class="summary-label">Total Quantity</span>
             <span class="summary-value" id="summary-total-qty">0</span>
           </div>
-          <div class="summary-row" id="summary-ac-row" style="display:none">
-            <span class="summary-label">AC Charge (10%)</span>
-            <span class="summary-value" id="summary-ac-charge">${formatCurrency(0)}</span>
-          </div>
+
           <div class="summary-row total">
             <span class="summary-label" style="font-size:1rem;font-weight:600;color:var(--text-primary)">Total Amount</span>
             <span class="summary-value total-amount" id="summary-total-amount">${formatCurrency(0)}</span>
@@ -688,16 +678,7 @@ function updateSummary() {
   if (el('summary-items-count')) el('summary-items-count').textContent = orderState.items.length;
   if (el('summary-total-qty')) el('summary-total-qty').textContent = totalQty;
 
-  const acRow = el('summary-ac-row');
-  if (acRow) {
-    if (totals.acCharge > 0) {
-      acRow.style.display = '';
-      if (el('summary-ac-charge')) el('summary-ac-charge').textContent = formatCurrency(totals.acCharge);
-    } else {
-      acRow.style.display = 'none';
-      if (el('summary-ac-charge')) el('summary-ac-charge').textContent = formatCurrency(0);
-    }
-  }
+
 
   if (el('summary-total-amount')) el('summary-total-amount').textContent = formatCurrency(totals.totalAmount);
 }

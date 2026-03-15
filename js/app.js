@@ -176,10 +176,6 @@ async function updateSidebarSales() {
                     kitchenTotal += (item.amount || 0);
                 }
             });
-            // Add AC Charges to Kitchen/General category
-            if (order.acCharge) {
-                kitchenTotal += (order.acCharge || 0);
-            }
         });
 
         liquorEl.textContent = formatCurrency(liquorTotal);
