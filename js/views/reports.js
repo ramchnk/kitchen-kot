@@ -165,7 +165,14 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
     order.items.forEach(item => {
       const key = item.itemId;
       if (!itemSales[key]) {
-        itemSales[key] = { name: item.itemName, category: item.category || itemMap[item.itemId]?.category || '', quantity: 0, amount: 0 };
+        const masterItem = itemMap[item.itemId];
+        itemSales[key] = { 
+          name: item.itemName, 
+          category: item.category || masterItem?.category || '', 
+          isLiquor: item.isLiquor || masterItem?.isLiquor || false,
+          quantity: 0, 
+          amount: 0 
+        };
       }
       itemSales[key].quantity += item.quantity;
       itemSales[key].amount += item.amount;
@@ -175,9 +182,9 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const sortedItems = Object.values(itemSales).sort((a, b) => b.amount - a.amount);
   const rawTotalQty = sortedItems.reduce((s, i) => s + i.quantity, 0);
 
-  // Extract Liquor to exclude it from the reports
-  const liquorItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() === 'LIQUOR');
-  const otherItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() !== 'LIQUOR');
+  // Extract Liquor or products with isLiquor flag to exclude them from the reports
+  const liquorItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() === 'LIQUOR' || i.isLiquor);
+  const otherItems = sortedItems.filter(i => !((i.category || '').toUpperCase().trim() === 'LIQUOR' || i.isLiquor));
 
   const liquorQty = liquorItems.reduce((s, i) => s + i.quantity, 0);
   const liquorAmount = liquorItems.reduce((s, i) => s + i.amount, 0);
@@ -264,12 +271,16 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   tab.innerHTML = `
     <div class="stats-grid">
       <div class="stat-card">
+        <div class="stat-icon purple"><span class="material-symbols-outlined">receipt_long</span></div>
+        <div><div class="stat-value">${formatCurrency(rawTotalAmount)}</div><div class="stat-label">Total Billed Sale</div></div>
+      </div>
+      <div class="stat-card">
         <div class="stat-icon blue"><span class="material-symbols-outlined">receipt</span></div>
         <div><div class="stat-value">${totalBills}</div><div class="stat-label">Total Bills</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Sales ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(incl. Counter)' : ''}</div></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Kitchen Sales ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(Adjusted)' : ''}</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>

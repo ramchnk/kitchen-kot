@@ -37,7 +37,14 @@ const localCache = {};
 const CACHE_TTL_MS = 30000; // Cache valid for 30 seconds
 
 function invalidateCache(storeName) {
+  // Delete direct cache
   delete localCache[storeName];
+  // Delete all query caches for this store
+  Object.keys(localCache).forEach(key => {
+    if (key.startsWith(`${storeName}:query:`)) {
+      delete localCache[key];
+    }
+  });
 }
 
 async function getAll(storeName) {
@@ -87,19 +94,41 @@ async function remove(storeName, id) {
   invalidateCache(storeName);
 }
 
+// Helper to get cache key for queries
+function getQueryKey(storeName, suffix) {
+  return `${storeName}:query:${suffix}`;
+}
+
 async function getByIndex(storeName, indexName, value) {
+  const cacheKey = getQueryKey(storeName, `${indexName}:${value}`);
+  const cached = localCache[cacheKey];
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) return cached.data;
+
   const q = query(tenantCollection(storeName), where(indexName, '==', value));
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
+  const data = snap.docs.map(d => d.data());
+  localCache[cacheKey] = { data, timestamp: Date.now() };
+  return data;
 }
 
 async function getRecent(storeName, limitCount = 50) {
+  const cacheKey = getQueryKey(storeName, `recent:${limitCount}`);
+  const cached = localCache[cacheKey];
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) return cached.data;
+
   const q = query(tenantCollection(storeName), orderBy('createdAt', 'desc'), limit(limitCount));
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
+  const data = snap.docs.map(d => d.data());
+  localCache[cacheKey] = { data, timestamp: Date.now() };
+  return data;
 }
 
 async function getFiltered(storeName, { where: whereClauses, orderBy: orderClause, limit: limitCount }) {
+  const queryStr = JSON.stringify({ whereClauses, orderClause, limitCount });
+  const cacheKey = getQueryKey(storeName, queryStr);
+  const cached = localCache[cacheKey];
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) return cached.data;
+
   let q = tenantCollection(storeName);
   if (whereClauses) {
     if (Array.isArray(whereClauses[0])) {
@@ -112,7 +141,9 @@ async function getFiltered(storeName, { where: whereClauses, orderBy: orderClaus
   if (limitCount) q = query(q, limit(limitCount));
   
   const snap = await getDocs(q);
-  return snap.docs.map(d => d.data());
+  const data = snap.docs.map(d => d.data());
+  localCache[cacheKey] = { data, timestamp: Date.now() };
+  return data;
 }
 
 async function clearStore(storeName) {

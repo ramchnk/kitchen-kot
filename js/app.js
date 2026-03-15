@@ -156,11 +156,14 @@ async function updateSidebarSales() {
 
     try {
         const today = todayISO();
-        const orders = await DB.getAll('orders');
-        // We only count 'billed' orders for today's sales
-        const todayOrders = orders.filter(o => 
-            (o.billedAt || o.createdAt || '').substring(0, 10) === today && o.status === 'billed'
-        );
+        // OPTIMIZATION: Use getFiltered to fetch ONLY today's billed orders
+        // This prevents fetching the entire history of orders every time a bill is saved.
+        const todayOrders = await DB.getFiltered('orders', {
+            where: [
+                ['status', '==', 'billed'],
+                ['date', '==', today]
+            ]
+        });
 
         let liquorTotal = 0;
         let kitchenTotal = 0;

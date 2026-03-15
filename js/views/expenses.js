@@ -64,12 +64,13 @@ export async function renderExpensesView(container) {
 
 async function loadExpenses(container) {
     const filterDate = document.getElementById('expense-filter-date').value;
-    const allExpenses = await DB.getAll('expenses');
+    
+    // OPTIMIZATION: Only fetch expenses for the specific date selected
+    const expenses = await DB.getFiltered('expenses', {
+        where: [['date', '==', filterDate]]
+    });
 
-    // Filter by date
-    const expenses = allExpenses
-        .filter(e => e.date === filterDate)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    expenses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     renderExpensesList(container, expenses);
     renderSummary(container, expenses);

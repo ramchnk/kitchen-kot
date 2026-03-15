@@ -21,7 +21,7 @@ function isDirectPurchaseCategory(category) {
 }
 
 export async function renderPurchasesView(container) {
-  const purchases = (await DB.getAll('purchases')).sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+  // Master data caching
   const ingredients = await DB.getAll('ingredients');
   const grocerySuppliers = await DB.getAll('grocerySuppliers');
   const items = await DB.getAll('items');
@@ -33,6 +33,62 @@ export async function renderPurchasesView(container) {
   const ingredientMap = Object.fromEntries(ingredients.map(i => [i.id, i]));
   const productMap = Object.fromEntries(items.map(i => [i.id, i]));
   const grocerySupplierMap = Object.fromEntries(grocerySuppliers.map(s => [s.id, s]));
+
+  container.innerHTML = `
+    <div class="view-header">
+      <div class="view-header-left">
+        <span class="material-symbols-outlined view-header-icon">shopping_cart</span>
+        <div>
+          <h2 class="view-title">Purchase Entry</h2>
+          <p class="view-subtitle" id="purchases-subtitle">Loading today's purchases...</p>
+        </div>
+      </div>
+      <div class="view-header-actions" style="display:flex;gap:10px;align-items:center">
+        <div class="date-filter">
+          <label class="form-label" style="margin:0;white-space:nowrap">Filter Date:</label>
+          <input type="date" class="form-input" id="purchase-filter-date" value="${todayISO()}">
+        </div>
+        <button class="btn btn-primary" id="btn-add-purchase">
+          <span class="material-symbols-outlined">add</span> New Purchase
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Supplier</th>
+            <th>Items</th>
+            <th class="text-right">Total Cost (₹)</th>
+            <th class="text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="purchases-list-body">
+           <tr><td colspan="5" class="text-center p-4">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // Initial Load
+  await loadPurchases(container, ingredientMap, productMap, grocerySupplierMap);
+
+  document.getElementById('purchase-filter-date').onchange = () => loadPurchases(container, ingredientMap, productMap, grocerySupplierMap);
+
+  document.getElementById('btn-add-purchase')?.addEventListener('click', () => {
+    resetPurchaseForm();
+    showPurchaseForm(container);
+  });
+}
+
+async function loadPurchases(container, ingredientMap, productMap, grocerySupplierMap) {
+  const date = document.getElementById('purchase-filter-date').value;
+  const purchases = await DB.getFiltered('purchases', {
+    where: [['date', '==', date]]
+  });
+  purchases.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const totalCost = purchases.reduce((sum, p) => sum + (p.cost || 0), 0);
 
@@ -54,36 +110,18 @@ export async function renderPurchasesView(container) {
   });
 
   const batches = Object.values(grouped);
+  const subtitle = document.getElementById('purchases-subtitle');
+  if (subtitle) subtitle.innerHTML = `${purchases.length} item(s) in ${batches.length} purchase(s) • Total: ${formatCurrency(totalCost)}`;
 
-  container.innerHTML = `
-    <div class="view-header">
-      <div class="view-header-left">
-        <span class="material-symbols-outlined view-header-icon">shopping_cart</span>
-        <div>
-          <h2 class="view-title">Purchase Entry</h2>
-          <p class="view-subtitle">${purchases.length} item(s) in ${batches.length} purchase(s) • Total: ${formatCurrency(totalCost)}</p>
-        </div>
-      </div>
-      <button class="btn btn-primary" id="btn-add-purchase">
-        <span class="material-symbols-outlined">add</span> New Purchase
-      </button>
-    </div>
+  const tbody = document.getElementById('purchases-list-body');
+  if (!tbody) return;
 
-    <div class="card">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Supplier</th>
-            <th>Items</th>
-            <th class="text-right">Total Cost (₹)</th>
-            <th class="text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${batches.length === 0 ? `
-            <tr><td colspan="5"><div class="empty-state"><span class="material-symbols-outlined">shopping_cart</span><p>No purchases recorded yet</p></div></td></tr>
-          ` : batches.map(batch => {
+  if (batches.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><span class="material-symbols-outlined">shopping_cart</span><p>No purchases recorded for this date.</p></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = batches.map(batch => {
     const sup = grocerySupplierMap[batch.supplierId];
     const itemNames = batch.items.map(p => {
       if (p.productId) {
@@ -96,7 +134,7 @@ export async function renderPurchasesView(container) {
     }).join(', ');
     return `
               <tr>
-                <td class="text-muted">${formatDate(batch.date)}</td>
+                <td class="text-muted font-mono">${formatDate(batch.date)}</td>
                 <td><strong>${sup?.name || '—'}</strong></td>
                 <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${itemNames}">
                   <span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary);margin-right:6px">${batch.items.length} item(s)</span>
@@ -122,18 +160,10 @@ export async function renderPurchasesView(container) {
                 </td>
               </tr>
             `;
-  }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+  }).join('');
 
-  document.getElementById('btn-add-purchase')?.addEventListener('click', () => {
-    resetPurchaseForm();
-    showPurchaseForm(container);
-  });
-
-  container.querySelectorAll('.btn-view-purchase').forEach(btn => {
+  // Re-attach listeners to dynamic buttons
+  tbody.querySelectorAll('.btn-view-purchase').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ids = JSON.parse(btn.dataset.batch);
       const fetchedItems = [];
@@ -145,7 +175,7 @@ export async function renderPurchasesView(container) {
     });
   });
 
-  container.querySelectorAll('.btn-del-batch').forEach(btn => {
+  tbody.querySelectorAll('.btn-del-batch').forEach(btn => {
     btn.addEventListener('click', async () => {
       const ids = JSON.parse(btn.dataset.batch);
       if (!confirm(`Delete this purchase with ${ids.length} item(s)? Stock will be reversed.`)) return;
@@ -159,20 +189,18 @@ export async function renderPurchasesView(container) {
               ing.currentStock = Math.max(0, (ing.currentStock || 0) - (p.quantity || 0));
               await DB.update('ingredients', ing);
             }
-          }
-          if (p.productId) {
+          } else if (p.productId) {
             const prod = await DB.getById('items', p.productId);
             if (prod) {
               prod.currentStock = Math.max(0, (prod.currentStock || 0) - (p.quantity || 0));
               await DB.update('items', prod);
             }
           }
+          await DB.remove('purchases', p.id);
         }
-        await DB.remove('purchases', id);
       }
-
-      showToast('Purchase deleted and stock reversed', 'warning');
-      renderPurchasesView(container);
+      showToast('Purchase deleted and stock reversed', 'success');
+      loadPurchases(container, ingredientMap, productMap, grocerySupplierMap);
     });
   });
 }

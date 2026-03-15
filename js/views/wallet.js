@@ -7,8 +7,8 @@ export async function renderWalletView(container) {
   // 1. Fetch persistent totals from the dedicated summary record
   const walletSummary = await DB.getWalletSummary();
   
-  // 2. Fetch history (limit to 100 for display, we don't need all for totals anymore)
-  const transactions = await DB.getRecent('walletTransactions', 100);
+  // 2. Fetch history (limit to 50 for display, we don't need all for totals anymore)
+  const transactions = await DB.getRecent('walletTransactions', 50);
   transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const totalIncome = walletSummary.totalIncome || 0;
