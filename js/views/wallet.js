@@ -4,19 +4,16 @@ import { Auth } from '../auth.js';
 import { formatCurrency, formatDateTime, showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderWalletView(container) {
-  const transactions = await DB.getAll('walletTransactions');
+  // 1. Fetch persistent totals from the dedicated summary record
+  const walletSummary = await DB.getWalletSummary();
+  
+  // 2. Fetch history (limit to 100 for display, we don't need all for totals anymore)
+  const transactions = await DB.getRecent('walletTransactions', 100);
   transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  const account = Auth.getCurrentAccount();
-  const openingBalance = Number(account?.walletBalance || 0);
-
-  const totals = transactions.reduce((acc, t) => {
-    if (t.type === 'income') acc.income += t.amount;
-    else acc.expense += t.amount;
-    return acc;
-  }, { income: 0, expense: 0 });
-
-  const balance = openingBalance + totals.income - totals.expense;
+  const totalIncome = walletSummary.totalIncome || 0;
+  const totalOutflow = walletSummary.totalOutflow || 0;
+  const balance = walletSummary.currentBalance || 0;
 
   container.innerHTML = `
     <div class="view-header">
@@ -28,8 +25,8 @@ export async function renderWalletView(container) {
         </div>
       </div>
       <div style="display:flex;gap:10px">
-        <button class="btn btn-secondary" id="btn-refresh-wallet">
-          <span class="material-symbols-outlined">refresh</span>
+        <button class="btn btn-secondary" id="btn-add-wallet-entry">
+          <span class="material-symbols-outlined">add</span> New Entry
         </button>
         ${Auth.isAdmin() ? `
         <button class="btn btn-primary" id="btn-withdraw">
@@ -46,7 +43,7 @@ export async function renderWalletView(container) {
         </div>
         <div class="stat-content">
           <p class="stat-label">Total Income</p>
-          <h3 class="stat-value" style="color: #22c55e">${formatCurrency(totals.income)}</h3>
+          <h3 class="stat-value" style="color: #22c55e">${formatCurrency(totalIncome)}</h3>
         </div>
       </div>
       <div class="stat-card">
@@ -55,7 +52,7 @@ export async function renderWalletView(container) {
         </div>
         <div class="stat-content">
           <p class="stat-label">Total Outflow</p>
-          <h3 class="stat-value" style="color: #ef4444">${formatCurrency(totals.expense)}</h3>
+          <h3 class="stat-value" style="color: #ef4444">${formatCurrency(totalOutflow)}</h3>
         </div>
       </div>
       <div class="stat-card" style="border: 2px solid var(--accent-primary)">
@@ -99,15 +96,58 @@ export async function renderWalletView(container) {
           </tr>
         </thead>
         <tbody id="wallet-transactions-body">
-          ${renderTransactionRows(transactions, openingBalance)}
+          ${renderTransactionRows(transactions, 0)}
         </tbody>
       </table>
     </div>
   `;
 
-  document.getElementById('btn-refresh-wallet')?.addEventListener('click', () => renderWalletView(container));
+  document.getElementById('btn-add-wallet-entry')?.addEventListener('click', () => showAddEntryModal(container));
   document.getElementById('btn-withdraw')?.addEventListener('click', () => showWithdrawModal(container, balance));
-  attachWalletFilters(container, transactions, openingBalance);
+  attachWalletFilters(container, transactions);
+}
+
+function showAddEntryModal(container) {
+  showModal('Add Manual Entry', `
+    <div class="form-group">
+      <label class="form-label">Type *</label>
+      <select class="form-select" id="modal-entry-type">
+        <option value="income">Income (Cash In)</option>
+        <option value="expense">Expense (Cash Out)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Amount *</label>
+      <input type="number" class="form-input" id="modal-entry-amount" placeholder="0.00" min="0.01" step="0.01">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description *</label>
+      <input type="text" class="form-input" id="modal-entry-desc" placeholder="e.g. Staff Deduction, Cash Injection">
+    </div>
+  `, {
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-entry">Save Entry</button>
+    `
+  });
+
+  document.getElementById('btn-save-entry')?.addEventListener('click', async () => {
+    const type = document.getElementById('modal-entry-type').value;
+    const amount = parseFloat(document.getElementById('modal-entry-amount').value);
+    const desc = document.getElementById('modal-entry-desc').value.trim();
+
+    if (isNaN(amount) || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
+    if (!desc) { showToast('Description is required', 'error'); return; }
+
+    try {
+      await DB.recordWalletTransaction(type, amount, desc);
+      showToast('Entry recorded successfully', 'success');
+      closeModal();
+      renderWalletView(container);
+    } catch (err) {
+      showToast('Failed to record: ' + err.message, 'error');
+    }
+  });
 }
 
 function renderTransactionRows(transactions, openingBalance) {
@@ -151,21 +191,48 @@ function renderTransactionRows(transactions, openingBalance) {
   return rows;
 }
 
-function attachWalletFilters(container, allTransactions, openingBalance) {
+function attachWalletFilters(container, recentTransactions) {
   const dateInput = document.getElementById('filter-wallet-date');
   const typeSelect = document.getElementById('filter-wallet-type');
   const clearBtn = document.getElementById('btn-clear-wallet-filters');
   const tbody = document.getElementById('wallet-transactions-body');
 
-  const updateFilters = () => {
+  const updateFilters = async () => {
     const dateVal = dateInput.value;
     const typeVal = typeSelect.value;
 
-    let filtered = allTransactions;
+    // Immediately show loading to prevent old data from lingering
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4"><span class="material-symbols-outlined spinning">sync</span> Searching...</td></tr>';
 
-    // Apply Date Filter
+    let filtered = [];
+
     if (dateVal) {
-      filtered = filtered.filter(t => (t.date || t.createdAt || '').startsWith(dateVal));
+      // 1. Fetch from DB for this specific date
+      const dbResults = await DB.getFiltered('walletTransactions', [{
+        field: 'date',
+        operator: '==',
+        value: dateVal
+      }]);
+
+      // 2. Also check our 'recent' set for any matches (handles items without the new date field)
+      // STRICTOR FILTER: ensure they actually belong to the selected date
+      const recentMatches = recentTransactions.filter(t => {
+        const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
+        return itemDate === dateVal;
+      });
+
+      // Merge and remove duplicates by ID
+      const merged = new Map();
+      [...dbResults, ...recentMatches].forEach(t => merged.set(t.id, t));
+      
+      // FINAL DOUBLE-CHECK: Ensure every single item in the merged list matches the date
+      filtered = Array.from(merged.values()).filter(t => {
+        const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
+        return itemDate === dateVal;
+      });
+    } else {
+      // No date filter, use the recent 100
+      filtered = [...recentTransactions];
     }
 
     // Apply Type Filter
@@ -177,10 +244,15 @@ function attachWalletFilters(container, allTransactions, openingBalance) {
       }
     }
 
-    // When filtering, we usually don't want the opening balance stuck at the top if it doesn't match the date
-    // But if all filters are cleared, we show it.
-    const showOpening = !dateVal && (typeVal === 'all' || typeVal === 'income');
-    tbody.innerHTML = renderTransactionRows(filtered, showOpening ? openingBalance : 0);
+    // Always sort by time
+    filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Render results
+    if (filtered.length === 0) {
+       tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
+    } else {
+       tbody.innerHTML = renderTransactionRows(filtered, 0);
+    }
   };
 
   dateInput?.addEventListener('change', updateFilters);

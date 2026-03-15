@@ -3,7 +3,7 @@
 import { firestore } from './firebase.js';
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  query, where, runTransaction, writeBatch
+  query, where, runTransaction, writeBatch, orderBy, limit
 } from 'firebase/firestore';
 
 // ---- Account Context ----
@@ -89,6 +89,28 @@ async function remove(storeName, id) {
 
 async function getByIndex(storeName, indexName, value) {
   const q = query(tenantCollection(storeName), where(indexName, '==', value));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data());
+}
+
+async function getRecent(storeName, limitCount = 50) {
+  const q = query(tenantCollection(storeName), orderBy('createdAt', 'desc'), limit(limitCount));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => d.data());
+}
+
+async function getFiltered(storeName, { where: whereClauses, orderBy: orderClause, limit: limitCount }) {
+  let q = tenantCollection(storeName);
+  if (whereClauses) {
+    if (Array.isArray(whereClauses[0])) {
+      whereClauses.forEach(cw => q = query(q, where(cw[0], cw[1], cw[2])));
+    } else {
+      q = query(q, where(whereClauses[0], whereClauses[1], whereClauses[2]));
+    }
+  }
+  if (orderClause) q = query(q, orderBy(orderClause[0], orderClause[1]));
+  if (limitCount) q = query(q, limit(limitCount));
+  
   const snap = await getDocs(q);
   return snap.docs.map(d => d.data());
 }
@@ -239,18 +261,96 @@ export const DB = {
   update,
   remove,
   getByIndex,
+  getRecent,
+  getFiltered,
   clearStore,
   getNextOrderNumber,
   seedDemoData,
+  getWalletSummary: async () => {
+    const snap = await getDoc(tenantDoc('walletSummary', 'latest'));
+    if (snap.exists()) return snap.data();
+    return { totalIncome: 0, totalOutflow: 0, currentBalance: 0 };
+  },
+  recalculateWalletTotals: async () => {
+    console.log('Recalculating wallet totals from history...');
+    const transactions = await DB.getAll('walletTransactions');
+    const account = await DB.getById('accounts', _accountId); // This is special, accounts is parent
+    const openingBalance = Number(account?.walletBalance || 0);
+
+    const totals = transactions.reduce((acc, t) => {
+      if (t.type === 'income') {
+        acc.totalIncome += Number(t.amount || 0);
+      } else if (t.type === 'adjustment-surplus') {
+        acc.totalIncome -= Number(t.amount || 0);
+        acc.totalOutflow += Number(t.amount || 0);
+      } else {
+        acc.totalOutflow += Number(t.amount || 0);
+      }
+      return acc;
+    }, { totalIncome: 0, totalOutflow: 0 });
+
+    const summary = {
+      totalIncome: totals.totalIncome,
+      totalOutflow: totals.totalOutflow,
+      currentBalance: openingBalance + totals.totalIncome - totals.totalOutflow,
+      updatedAt: new Date().toISOString()
+    };
+
+    await setDoc(tenantDoc('walletSummary', 'latest'), summary);
+    return summary;
+  },
   recordWalletTransaction: async (type, amount, description, sourceId = null) => {
-    const transaction = {
-      type, // 'income', 'expense', 'purchase', 'withdrawal'
-      amount: Number(amount),
+    const accId = _accountId;
+    if (!accId) throw new Error('Account not set');
+
+    const numAmount = Number(amount);
+    const now = new Date();
+    const transactionRecord = {
+      type,
+      amount: numAmount,
       description,
       sourceId: String(sourceId),
-      date: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString()
+      date: now.toISOString().split('T')[0],
+      createdAt: now.toISOString()
     };
-    return await add('walletTransactions', transaction);
+
+    const summaryRef = tenantDoc('walletSummary', 'latest');
+
+    return await runTransaction(firestore, async (transaction) => {
+      const summarySnap = await transaction.get(summaryRef);
+      let summary = summarySnap.exists() ? summarySnap.data() : { totalIncome: 0, totalOutflow: 0, currentBalance: 0 };
+      
+      // If balance existed in account doc but not summary yet, we should have synced it.
+      // For safety, we treat summary as the only source now.
+
+      if (type === 'income') {
+        summary.totalIncome += numAmount;
+        summary.currentBalance += numAmount;
+      } else if (type === 'adjustment-surplus') {
+        // Rule: deduct Total Income and add Total Outflow (Balance reduces by 2x)
+        summary.totalIncome -= numAmount;
+        summary.totalOutflow += numAmount;
+        summary.currentBalance -= (2 * numAmount);
+      } else {
+        summary.totalOutflow += numAmount;
+        summary.currentBalance -= numAmount;
+      }
+      summary.updatedAt = now.toISOString();
+
+      // 1. Get next ID for transaction
+      const cRef = counterDoc('walletTransactions');
+      const counterSnap = await transaction.get(cRef);
+      const nextId = (counterSnap.exists() ? counterSnap.data().value : 0) + 1;
+      transaction.set(cRef, { value: nextId });
+
+      // 2. Set transaction
+      const txRef = tenantDoc('walletTransactions', nextId);
+      transaction.set(txRef, { ...transactionRecord, id: nextId });
+
+      // 3. Update summary
+      transaction.set(summaryRef, summary);
+
+      return nextId;
+    });
   }
 };

@@ -849,6 +849,7 @@ async function handleBill() {
       order.status = 'billed';
       order.type = 'bill';
       order.billedAt = now;
+      order.date = todayISO();
       await DB.update('orders', order);
     } else {
       // Create new billed order
@@ -866,6 +867,7 @@ async function handleBill() {
         type: 'bill',
         createdAt: now,
         billedAt: now,
+        date: todayISO(),
       };
       await DB.add('orders', order);
     }
@@ -956,6 +958,7 @@ async function handleSaveOrder() {
       order.status = 'billed';
       order.type = 'kot-complete';
       order.billedAt = now;
+      order.date = todayISO();
       await DB.update('orders', order);
     } else {
       // Create new billed order
@@ -973,6 +976,7 @@ async function handleSaveOrder() {
         type: 'kot-complete',
         createdAt: now,
         billedAt: now,
+        date: todayISO(),
       };
       await DB.add('orders', order);
     }

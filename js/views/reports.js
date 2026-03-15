@@ -85,26 +85,72 @@ export async function renderReportsView(container) {
 async function generateReports(container) {
   const dateStr = document.getElementById('report-date')?.value || todayISO();
   
-  // Load master data once per session for optimization
+  // 1. Fetch Master Data (cached)
   if (masterItems.length === 0) masterItems = await DB.getAll('items');
   if (masterSuppliers.length === 0) masterSuppliers = await DB.getAll('suppliers');
   if (masterIngredients.length === 0) masterIngredients = await DB.getAll('ingredients');
   if (masterRecipes.length === 0) masterRecipes = await DB.getAll('itemIngredients');
   if (masterGrocerySuppliers.length === 0) masterGrocerySuppliers = await DB.getAll('grocerySuppliers');
 
-  // Optimize: Only fetch billed orders instead of EVERY order type
-  const orders = await DB.getByIndex('orders', 'status', 'billed');
-  const purchases = await DB.getAll('purchases');
-  const expenses = await DB.getAll('expenses');
+  // 2. Fetch all stock adjustments (small collection, vital for tracking)
   const stockAdjustments = await DB.getAll('stockAdjustments');
 
-  // Filter orders by date
-  const dayOrders = orders.filter(o => {
-    const d = o.billedAt || o.createdAt;
-    return d && d.startsWith(dateStr);
+  // 3. OPTIMIZATION: Determine how much history we REALLY need
+  // For standard reports (Sales, Expense, etc), we only need the selected day.
+  // For Product Stock, we need history back to the LATEST adjustment for each product.
+  
+  let earliestAnchorDate = dateStr;
+  let needsFullHistory = false;
+
+  masterItems.forEach(prod => {
+    const prodAdjs = stockAdjustments
+      .filter(a => a.productId === prod.id && a.date < dateStr)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    if (prodAdjs.length > 0) {
+      if (prodAdjs[0].date < earliestAnchorDate) {
+        earliestAnchorDate = prodAdjs[0].date;
+      }
+    } else {
+      // If ANY product has no past adjustment, we might need full history for accuracy
+      needsFullHistory = true;
+    }
   });
 
-  // Filter stock adjustments for the selected date
+  // 4. Targeted Database Reads
+  let orders, purchases, expenses;
+
+  if (needsFullHistory) {
+    // Fallback: Fetch everything (billed only) if no anchors exist
+    orders = await DB.getByIndex('orders', 'status', 'billed');
+    purchases = await DB.getAll('purchases');
+    expenses = await DB.getAll('expenses');
+  } else {
+    // Smart Fetch: Only from the earliest anchor onwards
+    orders = await DB.getFiltered('orders', {
+      where: [
+        ['status', '==', 'billed'],
+        ['date', '>=', earliestAnchorDate]
+      ]
+    });
+    // Fallback for old orders without 'date' field
+    if (orders.length === 0 || orders.some(o => !o.date)) {
+       // If we detect old data or no matches, fetch all billed to be safe
+       orders = await DB.getByIndex('orders', 'status', 'billed');
+    }
+
+    purchases = await DB.getFiltered('purchases', {
+      where: [['date', '>=', earliestAnchorDate]]
+    });
+    expenses = await DB.getFiltered('expenses', {
+      where: [['date', '==', dateStr]]
+    });
+  }
+
+  // Filter for the specific day reports
+  const dayOrders = orders.filter(o => (o.date || (o.billedAt || '').substring(0, 10)) === dateStr);
+  const dayPurchases = purchases.filter(p => p.date === dateStr);
+  const dayExpenses = expenses.filter(e => e.date === dateStr);
   const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
   const itemMap = Object.fromEntries(masterItems.map(i => [i.id, i]));
@@ -115,9 +161,9 @@ async function generateReports(container) {
   generateSalesReport(container, dayOrders, itemMap, dateStr, dayAdjustments);
   generateIncentiveReport(container, dayOrders, itemMap, supplierMap, dateStr);
   generateConsumptionReport(container, dayOrders, masterRecipes, ingredientMap, dateStr);
-  generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
+  generatePurchaseReport(container, dayPurchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
   generateProductStockReport(dayOrders, purchases, masterItems, dateStr, stockAdjustments, orders);
-  generateExpenseReport(container, expenses, dateStr);
+  generateExpenseReport(container, dayExpenses, dateStr);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
 
@@ -373,6 +419,9 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
               <button class="btn btn-sm btn-secondary btn-print-incentive" data-waiter-id="${si._id}" title="Print Incentive Slip">
                 <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
               </button>
+              <button class="btn btn-sm btn-primary btn-pay-incentive" data-waiter-id="${si._id}" data-amount="${si.totalIncentive}" data-name="${si.name}" title="Record Payment in Wallet">
+                <span class="material-symbols-outlined" style="font-size:16px">payments</span> Pay
+              </button>
               ` : ''}
             </div>
           </div>
@@ -410,14 +459,21 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
       `).join('')}
   `;
 
-  // Wire up print buttons
-  tab.querySelectorAll('.btn-print-incentive').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const waiterId = btn.dataset.waiterId;
-      const waiterData = supplierIncentives[waiterId];
-      if (waiterData) {
-        const printHTML = generateWaiterIncentivePrintHTML(waiterData, dateStr);
-        printContent(printHTML);
+  // Wire up pay buttons
+  tab.querySelectorAll('.btn-pay-incentive').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { waiterId, amount, name } = btn.dataset;
+      const numAmount = parseFloat(amount);
+      if (confirm(`Record payment of ${formatCurrency(numAmount)} to ${name} in Wallet?`)) {
+        try {
+          await DB.recordWalletTransaction('expense', numAmount, `Incentive Paid: ${name}`, `INC-PAY-${waiterId}-${dateStr}`);
+          showToast(`Payment of ${formatCurrency(numAmount)} recorded for ${name}`, 'success');
+          // Disable button or refresh might be good, but for now just toast
+          btn.disabled = true;
+          btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">check</span> Paid';
+        } catch (err) {
+          showToast('Failed to record payment: ' + err.message, 'error');
+        }
       }
     });
   });
@@ -950,6 +1006,14 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
 
       if (adjustedQty !== 0) {
         adjustmentCount++;
+        // Record Wallet Transaction for adjustments
+        if (adjustedQty > 0) {
+           // EOD Counter Sales (Unbilled) -> Income
+           await DB.recordWalletTransaction('income', adjustedAmount, `EOD Counter Sale (Unbilled): ${product.name}`, `STOCK-ADJ-${dateStr}`);
+        } else {
+           // EOD Stock Surplus (Overstock) -> Deduct Income, Add Outflow
+           await DB.recordWalletTransaction('adjustment-surplus', Math.abs(adjustedAmount), `EOD Stock Surplus: ${product.name}`, `STOCK-SURP-${dateStr}`);
+        }
       }
     }
 
@@ -1110,15 +1174,20 @@ function generateCustomRangeReport(container, allOrders, itemMap, supplierMap) {
 
     const btn = tab.querySelector('#btn-generate-custom-range');
     btn.addEventListener('click', () => {
-      renderCustomRangeData(allOrders, itemMap, supplierMap);
+      renderCustomRangeData(itemMap, supplierMap);
     });
   }
 
-  // Render immediately with defaults or current values
-  renderCustomRangeData(allOrders, itemMap, supplierMap);
+  // Initial prompt (optional: can also just render with results if dates are set)
+  document.getElementById('custom-range-results').innerHTML = `
+    <div class="empty-state" style="padding:40px">
+      <span class="material-symbols-outlined">date_range</span>
+      <p>Select a date range and click "Generate Range Report"</p>
+    </div>
+  `;
 }
 
-function renderCustomRangeData(allOrders, itemMap, supplierMap) {
+async function renderCustomRangeData(itemMap, supplierMap) {
   const resultsContainer = document.getElementById('custom-range-results');
   if (!resultsContainer) return;
 
@@ -1130,13 +1199,31 @@ function renderCustomRangeData(allOrders, itemMap, supplierMap) {
     return;
   }
 
-  // Filter orders by billed status and within date range inclusive
-  const rangeOrders = allOrders.filter(o => {
-    if (o.status !== 'billed') return false;
-    const d = (o.billedAt || o.createdAt || '').substring(0, 10);
-    if (!d) return false;
-    return d >= startStr && d <= endStr;
+  resultsContainer.innerHTML = `
+    <div class="empty-state" style="padding:40px">
+      <span class="material-symbols-outlined spinning">sync</span>
+      <p>Fetching range data from database...</p>
+    </div>
+  `;
+
+  // Fetch only what's needed for the range
+  let rangeOrders = await DB.getFiltered('orders', {
+    where: [
+      ['status', '==', 'billed'],
+      ['date', '>=', startStr],
+      ['date', '<=', endStr]
+    ]
   });
+
+  // Fallback for old orders
+  if (rangeOrders.length === 0) {
+      const allOrders = await DB.getByIndex('orders', 'status', 'billed');
+      rangeOrders = allOrders.filter(o => {
+          const d = (o.date || (o.billedAt || '').substring(0, 10));
+          return d >= startStr && d <= endStr;
+      });
+  }
+
 
   if (rangeOrders.length === 0) {
     resultsContainer.innerHTML = `
