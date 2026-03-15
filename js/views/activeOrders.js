@@ -88,8 +88,12 @@ export async function renderActiveOrdersView(container) {
       const order = await DB.getById('orders', id);
       if (!order) return;
 
+      const now = new Date().toISOString();
+      const today = now.substring(0, 10); // YYYY-MM-DD
+
       order.status = 'billed';
-      order.billedAt = new Date().toISOString();
+      order.billedAt = now;
+      order.date = today;
       await DB.update('orders', order);
 
       // Update ingredient consumption
@@ -111,16 +115,17 @@ export async function renderActiveOrdersView(container) {
       const printHTML = generateBillPrintHTML(order, supplier, table);
       printContent(printHTML);
 
-      // Record Wallet Transaction (Income adds to wallet, excluding counter/liquor items)
-      const nonCounterSubtotal = order.items
-        .filter(item => !isCounterItem(item))
+      // Record Wallet Transaction (Income adds to wallet, excluding LIQUOR items only)
+      const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
+      const nonLiquorSubtotal = order.items
+        .filter(item => !isLiquor(item))
         .reduce((sum, item) => sum + item.amount, 0);
 
-      if (nonCounterSubtotal > 0) {
+      if (nonLiquorSubtotal > 0) {
         const subTotal = order.subTotal || order.items.reduce((sum, item) => sum + item.amount, 0);
         const acCharge = order.acCharge || 0;
-        const proportionalAc = subTotal > 0 ? (nonCounterSubtotal / subTotal) * acCharge : 0;
-        const walletAmount = nonCounterSubtotal + proportionalAc;
+        const proportionalAc = subTotal > 0 ? (nonLiquorSubtotal / subTotal) * acCharge : 0;
+        const walletAmount = nonLiquorSubtotal + proportionalAc;
         await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
       }
 

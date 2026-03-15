@@ -157,13 +157,23 @@ async function updateSidebarSales() {
     try {
         const today = todayISO();
         // OPTIMIZATION: Use getFiltered to fetch ONLY today's billed orders
-        // This prevents fetching the entire history of orders every time a bill is saved.
-        const todayOrders = await DB.getFiltered('orders', {
+        let todayOrders = await DB.getFiltered('orders', {
             where: [
                 ['status', '==', 'billed'],
                 ['date', '==', today]
             ]
         });
+
+        // HYBRID FALLBACK: Include orders where 'date' field is missing but 'billedAt' matches today.
+        // This ensures sidebar sales match the Reports view.
+        const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+        const missingDateOrders = allBilled.filter(o => 
+            !o.date && o.billedAt && o.billedAt.startsWith(today)
+        );
+        
+        if (missingDateOrders.length > 0) {
+            todayOrders = [...todayOrders, ...missingDateOrders];
+        }
 
         let liquorTotal = 0;
         let kitchenTotal = 0;

@@ -118,12 +118,26 @@ async function generateReports(container) {
   });
 
   // 4. Targeted Database Reads: ONLY for the selected date to save costs
-  const orders = await DB.getFiltered('orders', {
+  let orders = await DB.getFiltered('orders', {
     where: [
       ['status', '==', 'billed'],
       ['date', '==', dateStr]
     ]
   });
+
+  // 5. HYBRID FALLBACK: Include orders where 'date' field is missing but 'billedAt' matches.
+  // This syncs up the report with the "Completed Bills" modal which uses billedAt prefix.
+  const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+  const missingDateOrders = allBilled.filter(o => 
+    !o.date && o.billedAt && o.billedAt.startsWith(dateStr)
+  );
+  
+  if (missingDateOrders.length > 0) {
+    console.log(`Found ${missingDateOrders.length} bills missing 'date' field, adding to report.`);
+    orders = [...orders, ...missingDateOrders];
+    // Sort by sequence to keep it clean
+    orders.sort((a, b) => (a.orderNumber || '').localeCompare(b.orderNumber || ''));
+  }
 
   const purchases = await DB.getFiltered('purchases', {
     where: [['date', '==', dateStr]]
@@ -280,7 +294,7 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Kitchen Sales ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(Adjusted)' : ''}</div></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Kitchen Sales (Excl. Liquor) ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(Adjusted)' : ''}</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>
