@@ -1,6 +1,6 @@
 // ===== Reports View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast, showModal, formatTime } from '../utils.js';
+import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast, showModal, closeModal, formatTime } from '../utils.js';
 
 // Cache master data in memory to drastically reduce DB reads on date change
 let masterItems = [];
@@ -603,12 +603,13 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
       `;
       
       const modalFooter = `
-        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-ghost" id="btn-cancel-pay-incentive">Cancel</button>
         <button class="btn btn-primary" id="btn-confirm-pay-incentive">Confirm & Pay</button>
       `;
       
       showModal('Pay Waiter Incentive', modalContent, { footer: modalFooter });
       
+      document.getElementById('btn-cancel-pay-incentive').onclick = closeModal;
       document.getElementById('btn-confirm-pay-incentive').onclick = async () => {
         const payDate = document.getElementById('incentive-pay-date').value;
         const btnConfirm = document.getElementById('btn-confirm-pay-incentive');
@@ -624,8 +625,9 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
           
           showToast(`Payment of ${formatCurrency(numAmount)} recorded for ${name}`, 'success');
           closeModal();
-          // Trigger a re-render of reports
-          document.getElementById('btn-generate-report')?.click();
+          
+          // Force immediate re-generation of reports for the current date
+          await generateReports(container);
         } catch (err) {
           console.error(err);
           showToast('Failed to record payment: ' + err.message, 'error');

@@ -3,7 +3,9 @@ import { DB } from './db.js';
 import { Auth } from './auth.js';
 import { registerShortcut } from './keyboard.js';
 import { initThemeSystem } from './themes.js';
-import { showToast, formatCurrency, todayISO } from './utils.js';
+import { showToast, formatCurrency, todayISO, closeModal } from './utils.js';
+
+window.closeModal = closeModal;
 import { renderOrderView, destroyOrderView } from './views/order.js';
 import { renderActiveOrdersView } from './views/activeOrders.js';
 import { renderItemsView } from './views/items.js';
