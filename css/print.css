@@ -98,6 +98,31 @@
         font-weight: 700;
         padding: 4px 2px;
         border-bottom: 1px dotted #999;
+        vertical-align: top;
+        line-height: 1.2;
+    }
+
+    .print-items th {
+        vertical-align: top;
+    }
+
+    /* Col 1: # */
+    .print-items th:nth-child(1),
+    .print-items td:nth-child(1) {
+        width: 20px;
+        padding-left: 0;
+    }
+
+    /* Col 3,4,5: Qty, Rate, Amt */
+    .print-items th:nth-child(3),
+    .print-items td:nth-child(3),
+    .print-items th:nth-child(4),
+    .print-items td:nth-child(4),
+    .print-items th:nth-child(5),
+    .print-items td:nth-child(5) {
+        white-space: nowrap;
+        text-align: right;
+        padding-left: 5px;
     }
 
     .print-total {
@@ -151,6 +176,7 @@
         font-weight: 900;
         padding: 5px 2px;
         border-bottom: 1px dashed #999;
+        vertical-align: top;
     }
 
     .print-kot-items .item-name {

@@ -187,9 +187,9 @@ export function generateBillPrintHTML(order, supplierName, tableName) {
     <tr>
       <td>${i + 1}</td>
       <td>${item.itemName}</td>
-      <td style="text-align:center">${item.quantity}</td>
-      <td style="text-align:right">${formatCurrency(item.price)}</td>
-      <td style="text-align:right">${formatCurrency(item.amount)}</td>
+      <td>${item.quantity}</td>
+      <td>${formatCurrency(item.price)}</td>
+      <td>${formatCurrency(item.amount)}</td>
     </tr>
   `).join('');
 

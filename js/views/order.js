@@ -1145,83 +1145,140 @@ async function updateIngredientConsumption(orderItems) {
 }
 
 // ===== Completed Bills Modal =====
-async function showCompletedBills() {
-  const today = todayISO();
-  const billedOrdersQuery = await DB.getByIndex('orders', 'status', 'billed');
-  const billedOrders = billedOrdersQuery
-    .filter(o => (o.billedAt || o.createdAt || '').startsWith(today))
-    .sort((a, b) => (b.billedAt || b.createdAt || '').localeCompare(a.billedAt || a.createdAt || ''));
+// ===== Completed Bills Modal =====
+async function showCompletedBills(initialDate = todayISO()) {
+  const contentHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px; background:var(--bg-elevated); padding:12px; border-radius:8px">
+      <div style="display:flex; align-items:center; gap:8px">
+        <span class="material-symbols-outlined text-muted">calendar_month</span>
+        <label class="form-label" style="margin:0">History Date:</label>
+        <input type="date" class="form-input" id="history-date-picker" value="${initialDate}" style="width:150px">
+      </div>
+      <div id="history-stats" class="text-muted" style="font-size:0.85rem">Loading bills...</div>
+    </div>
+    <div id="history-table-container">
+      <div class="empty-state" style="padding:40px">
+        <div class="spinner"></div>
+        <p>Fetching bills for ${formatDate(initialDate)}...</p>
+      </div>
+    </div>
+  `;
 
-  const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
-  const tableMap = Object.fromEntries(tables.map(t => [t.id, t]));
-
-  const content = billedOrders.length === 0
-    ? `<div class="empty-state" style="padding:40px">
-        <span class="material-symbols-outlined">receipt_long</span>
-        <p>No completed bills for today</p>
-      </div>`
-    : `<table class="data-table">
-        <thead>
-          <tr>
-            <th>Bill #</th>
-            <th>Table</th>
-            <th>Waiter</th>
-            <th>Items</th>
-            <th class="text-right">Amount</th>
-            <th>Time</th>
-            <th class="text-center">Reprint</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${billedOrders.map(o => {
-      const tbl = tableMap[o.tableId];
-      const sup = supplierMap[o.supplierId];
-      const time = o.billedAt || o.createdAt || '';
-      const timeStr = time ? new Date(time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
-      const itemCount = (o.items || []).reduce((s, i) => s + i.quantity, 0);
-      return `
-              <tr>
-                <td><strong>${o.orderNumber || o.id}</strong></td>
-                <td>${tbl?.name || '—'}</td>
-                <td>${sup?.name || '—'}</td>
-                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${itemCount} item(s)</span></td>
-                <td class="text-right amount font-mono">${formatCurrency(o.totalAmount)}</td>
-                <td class="text-muted">${timeStr}</td>
-                <td class="text-center">
-                  <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
-                    <span class="material-symbols-outlined" style="font-size:16px">print</span>
-                  </button>
-                </td>
-              </tr>`;
-    }).join('')}
-        </tbody>
-        <tfoot>
-          <tr style="font-weight:700">
-            <td colspan="4" class="text-right">Total (${billedOrders.length} bills)</td>
-            <td class="text-right amount font-mono">${formatCurrency(billedOrders.reduce((s, o) => s + o.totalAmount, 0))}</td>
-            <td colspan="2"></td>
-          </tr>
-        </tfoot>
-      </table>`;
-
-  showModal(`Completed Bills — ${formatDate(today)}`, content, {
+  const modalBody = showModal(`Completed Bills History`, contentHTML, {
     large: true,
     footer: `<button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Close</button>`
   });
 
-  // Attach reprint handlers
-  document.querySelectorAll('.btn-reprint-bill').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const order = await DB.getById('orders', parseInt(btn.dataset.id));
-      if (!order) { showToast('Order not found', 'error'); return; }
+  const datePicker = document.getElementById('history-date-picker');
+  const tableContainer = document.getElementById('history-table-container');
+  const statsEl = document.getElementById('history-stats');
 
-      const sup = supplierMap[order.supplierId];
-      const tbl = tableMap[order.tableId];
-      const printHTML = generateBillPrintHTML(order, sup?.name || '', tbl?.name || 'N/A');
-      printContent(printHTML);
-      showToast(`Reprinting Bill #${order.orderNumber || order.id}`, 'success');
-    });
-  });
+  const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s]));
+  const tableMap = Object.fromEntries(tables.map(t => [t.id, t]));
+
+  async function loadHistory(dateStr) {
+    statsEl.textContent = 'Fetching...';
+    tableContainer.innerHTML = `<div class="empty-state" style="padding:40px"><div class="spinner"></div><p>Loading...</p></div>`;
+    
+    try {
+      // Use efficient filtered query (removed orderBy to avoid Index requirement)
+      let bills = await DB.getFiltered('orders', {
+        where: [
+          ['status', '==', 'billed'],
+          ['date', '==', dateStr]
+        ]
+      });
+
+      // Hybrid Fallback (similar to reports.js) for consistency
+      const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+      const missingDateBills = allBilled.filter(o => 
+        !o.date && o.billedAt && o.billedAt.startsWith(dateStr)
+      );
+      
+      // Merge and sort in memory (much faster than requiring a composite index)
+      bills = [...bills, ...missingDateBills].sort((a, b) => 
+        (b.billedAt || b.createdAt || '').localeCompare(a.billedAt || a.createdAt || '')
+      );
+
+      statsEl.textContent = `${bills.length} bills found`;
+
+      if (bills.length === 0) {
+        tableContainer.innerHTML = `<div class="empty-state" style="padding:40px">
+          <span class="material-symbols-outlined">receipt_long</span>
+          <p>No completed bills for ${formatDate(dateStr)}</p>
+        </div>`;
+        return;
+      }
+
+      tableContainer.innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Bill #</th>
+              <th>Table</th>
+              <th>Waiter</th>
+              <th>Items</th>
+              <th class="text-right">Amount</th>
+              <th>Time</th>
+              <th class="text-center">Reprint</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bills.map(o => {
+              const tbl = tableMap[o.tableId];
+              const sup = supplierMap[o.supplierId];
+              const time = o.billedAt || o.createdAt || '';
+              const timeStr = time ? new Date(time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+              const itemCount = (o.items || []).reduce((s, i) => s + i.quantity, 0);
+              return `
+                <tr>
+                  <td><strong>${o.orderNumber || o.id}</strong></td>
+                  <td>${tbl?.name || '—'}</td>
+                  <td>${sup?.name || '—'}</td>
+                  <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${itemCount} item(s)</span></td>
+                  <td class="text-right amount font-mono">${formatCurrency(o.totalAmount)}</td>
+                  <td class="text-muted">${timeStr}</td>
+                  <td class="text-center">
+                    <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
+                      <span class="material-symbols-outlined" style="font-size:16px">print</span>
+                    </button>
+                  </td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700">
+              <td colspan="4" class="text-right">Total (${bills.length} bills)</td>
+              <td class="text-right amount font-mono">${formatCurrency(bills.reduce((s, o) => s + o.totalAmount, 0))}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+
+      // Attach reprint handlers to new buttons
+      tableContainer.querySelectorAll('.btn-reprint-bill').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const order = await DB.getById('orders', parseInt(btn.dataset.id));
+          if (!order) { showToast('Order not found', 'error'); return; }
+          const supName = suppliers.find(s => s.id === order.supplierId)?.name || '';
+          const tblName = tables.find(t => t.id === order.tableId)?.name || 'N/A';
+          const printHTML = generateBillPrintHTML(order, supName, tblName);
+          printContent(printHTML);
+          showToast(`Reprinting Bill #${order.orderNumber || order.id}`, 'success');
+        });
+      });
+
+    } catch (err) {
+      console.error('Error loading bill history:', err);
+      tableContainer.innerHTML = `<div class="empty-state text-danger"><p>Error loading history: ${err.message}</p></div>`;
+    }
+  }
+
+  datePicker.addEventListener('change', (e) => loadHistory(e.target.value));
+  
+  // Initial load
+  loadHistory(initialDate);
 }
 
 export function destroyOrderView() {

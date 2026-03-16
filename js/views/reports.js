@@ -1,6 +1,6 @@
 // ===== Reports View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast } from '../utils.js';
+import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast, showModal, formatTime } from '../utils.js';
 
 // Cache master data in memory to drastically reduce DB reads on date change
 let masterItems = [];
@@ -190,6 +190,13 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       }
       itemSales[key].quantity += item.quantity;
       itemSales[key].amount += item.amount;
+      
+      if (!itemSales[key].billDetails) itemSales[key].billDetails = [];
+      itemSales[key].billDetails.push({
+        num: order.orderNumber,
+        time: (order.billedAt || order.createdAt),
+        qty: item.quantity
+      });
     });
   });
 
@@ -252,11 +259,12 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
         <table class="data-table">
           <thead>
             <tr>
-              <th>#</th>
+              <th style="width:40px">#</th>
               <th>Item Name</th>
               <th>Category</th>
               <th class="text-right">Qty Sold</th>
               <th class="text-right">Total Amount</th>
+              <th style="width:50px"></th>
             </tr>
           </thead>
           <tbody>
@@ -267,6 +275,16 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
                 <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
                 <td class="text-right font-mono">${item.quantity}</td>
                 <td class="text-right amount font-mono">${formatCurrency(item.amount)}</td>
+                <td class="text-center">
+                  ${item.billDetails ? `
+                    <button class="btn btn-sm btn-ghost btn-view-item-bills" 
+                      data-name="${item.name}" 
+                      data-bills='${JSON.stringify(item.billDetails)}'
+                      title="View bill breakdown">
+                      <span class="material-symbols-outlined" style="font-size:18px">visibility</span>
+                    </button>
+                  ` : ''}
+                </td>
               </tr>
             `).join('')}
           </tbody>
@@ -274,7 +292,7 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
             <tr style="font-weight:700">
               <td colspan="3" class="text-right">Subtotal</td>
               <td class="text-right font-mono">${sectionQty}</td>
-              <td class="text-right amount total font-mono">${formatCurrency(sectionAmount)}</td>
+              <td class="text-right amount total font-mono" colspan="2">${formatCurrency(sectionAmount)}</td>
             </tr>
           </tfoot>
         </table>
@@ -355,6 +373,48 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       `
     }
   `;
+
+  // Wire up detail view buttons
+  tab.querySelectorAll('.btn-view-item-bills').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.name;
+      const bills = JSON.parse(btn.dataset.bills);
+      
+      const contentHTML = `
+        <div style="margin-bottom:12px">
+          <p>Sales distribution for <strong>${name}</strong> on ${formatDate(dateStr)}</p>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Bill #</th>
+              <th>Time</th>
+              <th class="text-right">Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bills.sort((a,b) => b.time.localeCompare(a.time)).map(b => `
+              <tr>
+                <td><strong class="text-accent">${b.num}</strong></td>
+                <td class="text-muted font-mono">${formatTime(b.time)}</td>
+                <td class="text-right font-mono" style="font-weight:600">${b.qty}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700">
+              <td colspan="2" class="text-right">Total Quantity</td>
+              <td class="text-right font-mono">${bills.reduce((s, b) => s + b.qty, 0)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+
+      showModal(`Item Sales Details`, contentHTML, { 
+        footer: '<button class="btn btn-ghost" onclick="document.getElementById(\'modal-overlay\').classList.add(\'hidden\')">Close</button>'
+      });
+    });
+  });
 }
 
 function generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr) {
