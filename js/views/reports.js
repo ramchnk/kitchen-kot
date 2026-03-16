@@ -147,6 +147,11 @@ async function generateReports(container) {
     where: [['date', '==', dateStr]]
   });
 
+  const payments = await DB.getFiltered('walletTransactions', {
+    where: [['date', '==', dateStr]]
+  });
+  const incentivePayments = payments.filter(p => p.sourceId?.startsWith('INC-PAY-'));
+
   // Special check: If no orders with 'date' field, try falling back to today if it is today
   if (orders.length === 0 && isToday(dateStr)) {
     // This handles the transition period for old records
@@ -159,7 +164,7 @@ async function generateReports(container) {
   const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
   generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments);
-  generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr);
+  generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr, incentivePayments);
   generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
   generateProductStockReport(orders, purchases, masterItems, dateStr, stockAdjustments, orders);
@@ -417,8 +422,17 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   });
 }
 
-function generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr) {
+function generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr, incentivePayments = []) {
   const tab = document.getElementById('tab-incentive');
+
+  // Map payments by waiterId for quick lookup
+  const paymentMap = {};
+  incentivePayments.forEach(p => {
+    // sourceId format: INC-PAY-${waiterId}-${dateStr}
+    const parts = p.sourceId.split('-');
+    const waiterId = parts[2];
+    if (waiterId) paymentMap[waiterId] = p;
+  });
 
   // Calculate incentives per waiter
   const supplierIncentives = {};
@@ -486,14 +500,30 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
             <span class="card-title">${si.name}</span>
             <div style="display:flex;align-items:center;gap:12px">
               <span class="text-success font-mono" style="font-size:1.1rem;font-weight:700">${formatCurrency(si.totalIncentive)}</span>
-              ${si.totalIncentive > 0 ? `
-              <button class="btn btn-sm btn-secondary btn-print-incentive" data-waiter-id="${si._id}" title="Print Incentive Slip">
-                <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
-              </button>
-              <button class="btn btn-sm btn-primary btn-pay-incentive" data-waiter-id="${si._id}" data-amount="${si.totalIncentive}" data-name="${si.name}" title="Record Payment in Wallet">
-                <span class="material-symbols-outlined" style="font-size:16px">payments</span> Pay
-              </button>
-              ` : ''}
+              ${(() => {
+                const payment = paymentMap[si._id];
+                if (payment) {
+                  return `
+                    <div style="text-align:right">
+                      <span class="status-badge status-active" style="background:#10b98120;color:#059669;padding:4px 8px">
+                        <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px">check_circle</span>
+                        Paid on ${formatDate(payment.date)}
+                      </span>
+                    </div>
+                  `;
+                }
+                if (si.totalIncentive > 0) {
+                  return `
+                    <button class="btn btn-sm btn-secondary btn-print-incentive" data-waiter-id="${si._id}" title="Print Incentive Slip">
+                      <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
+                    </button>
+                    <button class="btn btn-sm btn-primary btn-pay-incentive" data-waiter-id="${si._id}" data-amount="${si.totalIncentive}" data-name="${si.name}" title="Record Payment in Wallet">
+                      <span class="material-symbols-outlined" style="font-size:16px">payments</span> Pay
+                    </button>
+                  `;
+                }
+                return '';
+              })()}
             </div>
           </div>
           <table class="data-table">
@@ -530,22 +560,52 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
       `).join('')}
   `;
 
-  // Wire up pay buttons
   tab.querySelectorAll('.btn-pay-incentive').forEach(btn => {
     btn.addEventListener('click', async () => {
       const { waiterId, amount, name } = btn.dataset;
       const numAmount = parseFloat(amount);
-      if (confirm(`Record payment of ${formatCurrency(numAmount)} to ${name} in Wallet?`)) {
+      
+      const modalContent = `
+        <div style="padding:10px 0">
+          <p>Confirm payment of <strong>${formatCurrency(numAmount)}</strong> to <strong>${name}</strong>?</p>
+          <div class="form-group" style="margin-top:16px">
+            <label class="form-label">Payment Date</label>
+            <input type="date" class="form-input" id="incentive-pay-date" value="${todayISO()}">
+          </div>
+        </div>
+      `;
+      
+      const modalFooter = `
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-pay-incentive">Confirm & Pay</button>
+      `;
+      
+      showModal('Pay Waiter Incentive', modalContent, { footer: modalFooter });
+      
+      document.getElementById('btn-confirm-pay-incentive').onclick = async () => {
+        const payDate = document.getElementById('incentive-pay-date').value;
+        const btnConfirm = document.getElementById('btn-confirm-pay-incentive');
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Processing...';
+
         try {
-          await DB.recordWalletTransaction('expense', numAmount, `Incentive Paid: ${name}`, `INC-PAY-${waiterId}-${dateStr}`);
+          // Record transaction with the chosen payment date
+          // sourceId links it to the original report date and waiter
+          const sourceId = `INC-PAY-${waiterId}-${dateStr}`;
+          
+          await DB.recordWalletTransaction('expense', numAmount, `Incentive Paid: ${name}`, sourceId, payDate);
+          
           showToast(`Payment of ${formatCurrency(numAmount)} recorded for ${name}`, 'success');
-          // Disable button or refresh might be good, but for now just toast
-          btn.disabled = true;
-          btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">check</span> Paid';
+          closeModal();
+          // Trigger a re-render of reports
+          document.getElementById('btn-generate-report')?.click();
         } catch (err) {
+          console.error(err);
           showToast('Failed to record payment: ' + err.message, 'error');
+          btnConfirm.disabled = false;
+          btnConfirm.textContent = 'Confirm & Pay';
         }
-      }
+      };
     });
   });
 }

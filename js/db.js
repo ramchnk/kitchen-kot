@@ -330,7 +330,7 @@ export const DB = {
     await setDoc(tenantDoc('walletSummary', 'latest'), summary);
     return summary;
   },
-  recordWalletTransaction: async (type, amount, description, sourceId = null) => {
+  recordWalletTransaction: async (type, amount, description, sourceId = null, customDate = null) => {
     const accId = _accountId;
     if (!accId) throw new Error('Account not set');
 
@@ -341,7 +341,7 @@ export const DB = {
       amount: numAmount,
       description,
       sourceId: String(sourceId),
-      date: now.toISOString().split('T')[0],
+      date: customDate || now.toISOString().split('T')[0],
       createdAt: now.toISOString()
     };
 
