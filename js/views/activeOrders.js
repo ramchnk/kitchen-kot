@@ -1,6 +1,6 @@
 import { DB } from '../db.js';
 import { Auth } from '../auth.js';
-import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateBillPrintHTML, isCounterItem } from '../utils.js';
+import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, isCounterItem } from '../utils.js';
 
 export async function renderActiveOrdersView(container) {
   const orders = (await DB.getByIndex('orders', 'status', 'open'))
@@ -64,6 +64,9 @@ export async function renderActiveOrdersView(container) {
                       <span class="material-symbols-outlined" style="font-size:16px">visibility</span>
                     </button>
                     ${Auth.isAdmin() ? `
+                    <button class="btn btn-sm btn-ghost btn-reprint-kot" data-id="${order.id}" title="Reprint KOT">
+                      <span class="material-symbols-outlined" style="font-size:16px">print</span> Reprint
+                    </button>
                     <button class="btn btn-sm btn-ghost text-danger btn-cancel-order" data-id="${order.id}" title="Cancel Order">
                       <span class="material-symbols-outlined" style="font-size:16px">cancel</span>
                     </button>
@@ -91,9 +94,16 @@ export async function renderActiveOrdersView(container) {
       const now = new Date().toISOString();
       const today = now.substring(0, 10); // YYYY-MM-DD
 
+      const totals = order.items.reduce((acc, item) => {
+        acc.subTotal += (item.amount || 0);
+        return acc;
+      }, { subTotal: 0 });
+
       order.status = 'billed';
       order.billedAt = now;
       order.date = today;
+      order.subTotal = totals.subTotal;
+      order.totalAmount = totals.subTotal; // Assuming no AC charge for now as per calculateTotals
       await DB.update('orders', order);
 
       // Update ingredient consumption
@@ -131,6 +141,44 @@ export async function renderActiveOrdersView(container) {
 
       showToast(`Order #${order.orderNumber} billed!`, 'success');
       renderActiveOrdersView(container);
+    });
+  });
+
+  // Reprint KOT (Admin Only)
+  container.querySelectorAll('.btn-reprint-kot').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!Auth.isAdmin()) {
+        showToast('Only admins can reprint KOT', 'error');
+        return;
+      }
+
+      const id = parseInt(btn.dataset.id);
+      const order = await DB.getById('orders', id);
+      if (!order) return;
+
+      const supplierName = supplierMap[order.supplierId] || '';
+      const tableName = tableMap[order.tableId] || 'N/A';
+
+      const kitchenItems = order.items.filter(item => !isCounterItem(item));
+      const counterItems = order.items.filter(item => isCounterItem(item));
+
+      if (kitchenItems.length > 0) {
+        const kitchenOrder = { ...order, items: kitchenItems };
+        printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
+      }
+
+      if (counterItems.length > 0) {
+        // Delay slighty if both are printed to avoid print dialog overlap in some browsers
+        if (kitchenItems.length > 0) {
+          setTimeout(() => {
+            printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+          }, 1000);
+        } else {
+          printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+        }
+      }
+
+      showToast(`Reprinting KOT #${order.orderNumber}`, 'success');
     });
   });
 

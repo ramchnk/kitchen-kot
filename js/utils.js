@@ -146,6 +146,7 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
+      <div><span>Date:</span><span>${formatDate(order.createdAt)}</span></div>
       <div><span>Table:</span><span><strong>${tableName}</strong></span></div>
       <div><span>Time:</span><span>${formatTime(order.createdAt)}</span></div>
       ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}
@@ -171,6 +172,7 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
+      <div><span>Date:</span><span>${formatDate(order.createdAt)}</span></div>
       <div><span>Table:</span><span><strong>${tableName}</strong></span></div>
       <div><span>Time:</span><span>${formatTime(order.createdAt)}</span></div>
       ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}

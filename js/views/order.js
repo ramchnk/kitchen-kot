@@ -1239,9 +1239,14 @@ async function showCompletedBills(initialDate = todayISO()) {
                   <td class="text-right amount font-mono">${formatCurrency(o.totalAmount)}</td>
                   <td class="text-muted">${timeStr}</td>
                   <td class="text-center">
-                    <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
-                      <span class="material-symbols-outlined" style="font-size:16px">print</span>
-                    </button>
+                    <div style="display:flex; gap:4px; justify-content:center">
+                      <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
+                        <span class="material-symbols-outlined" style="font-size:16px">print</span>
+                      </button>
+                      <button class="btn btn-sm btn-secondary btn-reprint-kot" data-id="${o.id}" title="Reprint KOT">
+                        <span class="material-symbols-outlined" style="font-size:16px">restaurant</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>`;
             }).join('')}
@@ -1266,6 +1271,36 @@ async function showCompletedBills(initialDate = todayISO()) {
           const printHTML = generateBillPrintHTML(order, supName, tblName);
           printContent(printHTML);
           showToast(`Reprinting Bill #${order.orderNumber || order.id}`, 'success');
+        });
+      });
+
+      tableContainer.querySelectorAll('.btn-reprint-kot').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const order = await DB.getById('orders', parseInt(btn.dataset.id));
+          if (!order) { showToast('Order not found', 'error'); return; }
+          
+          const supName = suppliers.find(s => s.id === order.supplierId)?.name || '';
+          const tblName = tables.find(t => t.id === order.tableId)?.name || 'N/A';
+
+          const kitchenItems = order.items.filter(item => !isCounterItem(item));
+          const counterItems = order.items.filter(item => isCounterItem(item));
+
+          if (kitchenItems.length > 0) {
+            const kitchenOrder = { ...order, items: kitchenItems };
+            printContent(generateKOTPrintHTML(kitchenOrder, supName, tblName));
+          }
+
+          if (counterItems.length > 0) {
+            if (kitchenItems.length > 0) {
+              setTimeout(() => {
+                printContent(generateCounterKOTPrintHTML(order, supName, tblName, counterItems));
+              }, 1000);
+            } else {
+              printContent(generateCounterKOTPrintHTML(order, supName, tblName, counterItems));
+            }
+          }
+          
+          showToast(`Reprinting KOT #${order.orderNumber || order.id}`, 'success');
         });
       });
 
