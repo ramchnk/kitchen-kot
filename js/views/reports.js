@@ -168,7 +168,7 @@ async function generateReports(container) {
   generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
   generateProductStockReport(orders, purchases, masterItems, dateStr, stockAdjustments, orders);
-  generateExpenseReport(container, expenses, dateStr);
+  generateExpenseReport(container, expenses, dateStr, incentivePayments);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
 
@@ -637,9 +637,19 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
   });
 }
 
-function generateExpenseReport(container, expenses, dateStr) {
+function generateExpenseReport(container, expenses, dateStr, incentivePayments = []) {
   const tab = document.getElementById('tab-expenses');
-  const dayExpenses = expenses.filter(e => e.date === dateStr);
+  
+  // Convert incentive payments to expense-like objects for reporting
+  const formattedIncentiveExpenses = incentivePayments.map(p => ({
+    category: 'Waiter Incentive',
+    description: p.description,
+    amount: p.amount,
+    date: p.date,
+    isManual: false
+  }));
+
+  const dayExpenses = [...expenses.filter(e => e.date === dateStr), ...formattedIncentiveExpenses];
   const total = dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const categories = {};

@@ -65,15 +65,33 @@ export async function renderExpensesView(container) {
 async function loadExpenses(container) {
     const filterDate = document.getElementById('expense-filter-date').value;
     
-    // OPTIMIZATION: Only fetch expenses for the specific date selected
-    const expenses = await DB.getFiltered('expenses', {
+    // Fetch manual expenses
+    const manualExpenses = await DB.getFiltered('expenses', {
         where: [['date', '==', filterDate]]
     });
 
-    expenses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Fetch wallet transaction expenses (Incentives)
+    const walletPayments = await DB.getFiltered('walletTransactions', {
+        where: [['date', '==', filterDate]]
+    });
+    
+    const incentiveExpenses = walletPayments
+        .filter(p => p.sourceId?.startsWith('INC-PAY-'))
+        .map(p => ({
+            id: p.id,
+            category: 'Waiter Incentive',
+            description: p.description,
+            amount: p.amount,
+            date: p.date,
+            createdAt: p.createdAt,
+            isLocked: true 
+        }));
 
-    renderExpensesList(container, expenses);
-    renderSummary(container, expenses);
+    const allExpenses = [...manualExpenses, ...incentiveExpenses];
+    allExpenses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    renderExpensesList(container, allExpenses);
+    renderSummary(container, allExpenses);
 }
 
 function renderExpensesList(container, expenses) {
@@ -104,9 +122,13 @@ function renderExpensesList(container, expenses) {
       <td class="text-right amount font-mono">${formatCurrency(e.amount)}</td>
       ${Auth.isAdmin() ? `
       <td class="text-center">
-        <button class="btn btn-sm btn-ghost btn-delete-expense" data-id="${e.id}" title="Delete">
-          <span class="material-symbols-outlined" style="font-size:18px;color:var(--danger)">delete</span>
-        </button>
+        ${e.isLocked ? `
+          <span class="material-symbols-outlined" title="Automatic Entry (Waiter Incentive)" style="font-size:18px;color:var(--text-muted)">lock</span>
+        ` : `
+          <button class="btn btn-sm btn-ghost btn-delete-expense" data-id="${e.id}" title="Delete">
+            <span class="material-symbols-outlined" style="font-size:18px;color:var(--danger)">delete</span>
+          </button>
+        `}
       </td>
       ` : ''}
     </tr>
