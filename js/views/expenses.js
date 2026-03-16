@@ -1,6 +1,6 @@
 import { DB } from '../db.js';
 import { Auth } from '../auth.js';
-import { formatCurrency, formatDate, todayISO, showToast, showModal, closeModal, printContent } from '../utils.js';
+import { formatCurrency, formatDate, formatTime, todayISO, showToast, showModal, closeModal, printContent } from '../utils.js';
 
 export async function renderExpensesView(container) {
     container.innerHTML = `
@@ -95,7 +95,10 @@ function renderExpensesList(container, expenses) {
 
     tbody.innerHTML = expenses.map(e => `
     <tr>
-      <td class="font-mono">${formatDate(e.date)}</td>
+      <td class="font-mono">
+        <div>${formatDate(e.date)}</div>
+        <div class="text-muted" style="font-size:0.75rem">${e.createdAt ? formatTime(e.createdAt) : '—'}</div>
+      </td>
       <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${e.category}</span></td>
       <td><strong>${e.description}</strong></td>
       <td class="text-right amount font-mono">${formatCurrency(e.amount)}</td>

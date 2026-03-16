@@ -65,9 +65,9 @@ export async function renderOrderView(container) {
             </div>
           </div>
           <div style="display:flex;gap:6px">
-            ${Auth.isAdmin() ? `<button class="btn btn-ghost" id="btn-completed-bills" title="Completed Bills">
+            <button class="btn btn-ghost" id="btn-completed-bills" title="Completed Bills">
               <span class="material-symbols-outlined">receipt_long</span> Completed Bills
-            </button>` : ''}
+            </button>
             ${account?.isLiquorEnabled ? `<button class="btn btn-ghost" id="btn-sync-liquor" title="Sync Liquor from API">
               <span class="material-symbols-outlined">sync</span> Sync Liquor
             </button>` : ''}
@@ -1243,9 +1243,11 @@ async function showCompletedBills(initialDate = todayISO()) {
                       <button class="btn btn-sm btn-primary btn-reprint-bill" data-id="${o.id}" title="Reprint Bill">
                         <span class="material-symbols-outlined" style="font-size:16px">print</span>
                       </button>
+                      ${Auth.isAdmin() ? `
                       <button class="btn btn-sm btn-secondary btn-reprint-kot" data-id="${o.id}" title="Reprint KOT">
                         <span class="material-symbols-outlined" style="font-size:16px">restaurant</span>
                       </button>
+                      ` : ''}
                     </div>
                   </td>
                 </tr>`;
