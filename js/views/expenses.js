@@ -229,8 +229,10 @@ function printExpenseReport() {
 
     // Clone the table to avoid modifying the UI
     const tableClone = document.getElementById('expenses-table').cloneNode(true);
-    // Remove the actions column from clone
-    tableClone.querySelectorAll('th:last-child, td:last-child').forEach(el => el.remove());
+    // Remove the actions column from clone ONLY if it exists (Admin role)
+    if (Auth.isAdmin()) {
+        tableClone.querySelectorAll('th:last-child, td:last-child').forEach(el => el.remove());
+    }
 
     const printHTML = `
     <div class="print-header">

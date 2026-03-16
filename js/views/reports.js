@@ -274,7 +274,7 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
           </thead>
           <tbody>
             ${items.map((item, i) => `
-              <tr>
+              <tr class="searchable-row" data-search="${(item.name + ' ' + (item.category || '')).toLowerCase()}">
                 <td class="text-muted">${i + 1}</td>
                 <td><strong>${item.name}</strong></td>
                 <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary)">${item.category}</span></td>
@@ -306,6 +306,14 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   };
 
   tab.innerHTML = `
+    <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
+      <div class="search-container" style="flex:1; max-width:400px">
+        <span class="material-symbols-outlined">search</span>
+        <input type="text" id="sales-report-search" class="form-input" placeholder="Search items or categories...">
+      </div>
+      <div class="text-muted" style="font-size:0.85rem" id="sales-search-results"></div>
+    </div>
+
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-icon purple"><span class="material-symbols-outlined">receipt_long</span></div>
@@ -419,6 +427,25 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
         footer: '<button class="btn btn-ghost" onclick="document.getElementById(\'modal-overlay\').classList.add(\'hidden\')">Close</button>'
       });
     });
+  });
+
+  // Wire up search
+  const searchInput = tab.querySelector('#sales-report-search');
+  searchInput?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    const rows = tab.querySelectorAll('.searchable-row');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const match = row.dataset.search.includes(q);
+      row.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    });
+
+    const resultsLabel = tab.querySelector('#sales-search-results');
+    if (resultsLabel) {
+      resultsLabel.textContent = q ? `Found ${visibleCount} items` : '';
+    }
   });
 }
 
