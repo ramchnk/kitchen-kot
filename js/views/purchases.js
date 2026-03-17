@@ -299,13 +299,16 @@ function showPurchaseForm(container) {
           </div>
         </div>
         <div style="flex:1">
+          <label class="form-label">Qty <span id="modal-pur-unit-label" style="color:var(--primary);font-weight:700"></span></label>
           <input type="number" class="form-input" id="modal-pur-qty" min="0.01" step="0.01" placeholder="Qty" style="margin-bottom:0">
         </div>
         <div style="flex:1">
-          <input type="number" class="form-input" id="modal-pur-unit-cost" min="0" step="0.01" placeholder="Cost/Unit ₹" style="margin-bottom:0">
+          <label class="form-label">Cost / <span class="modal-pur-unit-text">Unit</span></label>
+          <input type="number" class="form-input" id="modal-pur-unit-cost" min="0" step="0.01" placeholder="₹ 0.00" style="margin-bottom:0">
         </div>
         <div style="flex:1">
-          <input type="number" class="form-input" id="modal-pur-cost" min="0" step="0.01" placeholder="Total ₹" style="margin-bottom:0">
+          <label class="form-label">Total Cost</label>
+          <input type="number" class="form-input" id="modal-pur-cost" min="0" step="0.01" placeholder="₹ 0.00" style="margin-bottom:0">
         </div>
         <button class="btn btn-primary btn-sm" id="modal-pur-add-item" style="height:38px;padding:0 14px" title="Add Item">
           <span class="material-symbols-outlined" style="font-size:18px">add</span>
@@ -555,13 +558,17 @@ function setupPurchaseItemSearch(searchableItems) {
       html += `<div style="padding:6px 12px;font-size:0.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;background:var(--bg-tertiary);border-bottom:1px solid var(--border)">${cat}</div>`;
       for (const item of catItems) {
         const priceLabel = item.price ? ` — ${formatCurrency(item.price)}` : '';
-        const unitLabel = item.type === 'ingredient' ? ` (${item.unit})` : '';
+        const unitLabel = ` (${item.unit || 'qty'})`;
         const codeLabel = item.code ? `<code style="background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:0.72rem;font-weight:600;margin-right:4px">${item.code}</code>` : '';
         html += `<div class="search-dropdown-item ${flatIdx === highlightIdx ? 'highlighted' : ''}" data-flat-idx="${flatIdx}">
-                  <div>
-                    ${codeLabel}<span>${item.name}</span>
-                    <span style="color:var(--text-muted);font-size:0.78rem">${unitLabel}</span>
-                    ${item.type === 'product' ? ' <span class="status-badge" style="background:var(--info-bg);color:var(--info);font-size:0.6rem;margin-left:4px">PRODUCT</span>' : ''}
+                  <div style="display:flex;align-items:center;gap:8px">
+                    ${codeLabel}
+                    <div style="flex:1">
+                       <div style="font-weight:600">${item.name}</div>
+                       <div style="font-size:0.7rem;color:var(--text-muted)">${item.category}</div>
+                    </div>
+                    <span class="status-badge" style="background:var(--bg-elevated);color:var(--text-primary);font-size:0.65rem;border:1px solid var(--border)">${item.unit || 'qty'}</span>
+                    ${item.type === 'product' ? '<span class="status-badge" style="background:var(--info-bg);color:var(--info);font-size:0.6rem">PRODUCT</span>' : ''}
                   </div>
                   <span style="color:var(--text-muted);font-size:0.8rem">${priceLabel}</span>
                 </div>`;
@@ -584,6 +591,18 @@ function setupPurchaseItemSearch(searchableItems) {
     const item = filtered[idx];
     selectedPurchaseItem = item;
     input.value = item.name;
+    
+    // Show unit in labels
+    const unitLabel = document.getElementById('modal-pur-unit-label');
+    const unitTexts = document.querySelectorAll('.modal-pur-unit-text');
+    const unit = item.unit || 'qty';
+    
+    if (unitLabel) unitLabel.textContent = `(${unit})`;
+    unitTexts.forEach(el => el.textContent = unit);
+
+    const qtyInput = document.getElementById('modal-pur-qty');
+    if (qtyInput) qtyInput.placeholder = `in ${unit}`;
+
     dropdown.classList.remove('visible');
     document.getElementById('modal-pur-qty')?.focus();
     document.getElementById('modal-pur-qty')?.select();
@@ -597,11 +616,21 @@ function setupPurchaseItemSearch(searchableItems) {
 
   input.addEventListener('input', () => {
     selectedPurchaseItem = null;
+    const unitLabel = document.getElementById('modal-pur-unit-label');
+    if (unitLabel) unitLabel.textContent = '';
+    document.querySelectorAll('.modal-pur-unit-text').forEach(el => el.textContent = 'Unit');
+    const qtyInput = document.getElementById('modal-pur-qty');
+    if (qtyInput) qtyInput.placeholder = 'Qty';
     filterItems(input.value);
   });
 
   input.addEventListener('focus', () => {
     selectedPurchaseItem = null;
+    const unitLabel = document.getElementById('modal-pur-unit-label');
+    if (unitLabel) unitLabel.textContent = '';
+    document.querySelectorAll('.modal-pur-unit-text').forEach(el => el.textContent = 'Unit');
+    const qtyInput = document.getElementById('modal-pur-qty');
+    if (qtyInput) qtyInput.placeholder = 'Qty';
     filterItems(input.value);
   });
 
@@ -676,6 +705,13 @@ function addPurchaseItem() {
 
   // Reset for next item
   selectedPurchaseItem = null;
+  const unitLabel = document.getElementById('modal-pur-unit-label');
+  if (unitLabel) unitLabel.textContent = '';
+  document.querySelectorAll('.modal-pur-unit-text').forEach(el => el.textContent = 'Unit');
+  if (qtyInput) qtyInput.placeholder = 'Qty';
+
+
+  
   searchInput.value = '';
   qtyInput.value = '';
   unitCostInput.value = '';
