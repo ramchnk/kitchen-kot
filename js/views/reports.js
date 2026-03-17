@@ -25,6 +25,9 @@ export async function renderReportsView(container) {
         <button class="btn btn-secondary" id="btn-generate-report">
           <span class="material-symbols-outlined">refresh</span> Generate
         </button>
+        <button class="btn btn-secondary" id="btn-print-current-report">
+          <span class="material-symbols-outlined">print</span> Print
+        </button>
       </div>
     </div>
 
@@ -80,6 +83,28 @@ export async function renderReportsView(container) {
 
   // Initial generation
   generateAll();
+
+  // Global Print handler
+  document.getElementById('btn-print-current-report')?.addEventListener('click', () => {
+    const activeBtn = container.querySelector('.tab-btn.active');
+    const activeTab = activeBtn?.dataset.tab;
+    
+    if (activeTab === 'sales') {
+        document.getElementById('btn-print-sales')?.click();
+    } else if (activeTab === 'purchase') {
+        document.getElementById('btn-print-purchase')?.click();
+    } else if (activeTab === 'expenses') {
+        document.getElementById('btn-print-expenses-full')?.click();
+    } else if (activeTab === 'consumption') {
+        document.getElementById('btn-print-consumption')?.click();
+    } else if (activeTab === 'product-stock') {
+        document.getElementById('btn-print-product-stock')?.click();
+    } else if (activeTab === 'incentive') {
+        showToast('Please print individual waiter slips from the report.', 'info');
+    } else {
+        window.print();
+    }
+  });
 }
 
 async function generateReports(container) {
@@ -306,12 +331,17 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   };
 
   tab.innerHTML = `
-    <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center;">
-      <div class="search-container" style="flex:1; max-width:400px">
-        <span class="material-symbols-outlined">search</span>
-        <input type="text" id="sales-report-search" class="form-input" placeholder="Search items or categories...">
+    <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center; justify-content: space-between;">
+      <div style="display:flex; gap:12px; align-items:center; flex:1">
+        <div class="search-container" style="flex:1; max-width:400px">
+          <span class="material-symbols-outlined">search</span>
+          <input type="text" id="sales-report-search" class="form-input" placeholder="Search items or categories...">
+        </div>
+        <div class="text-muted" style="font-size:0.85rem" id="sales-search-results"></div>
       </div>
-      <div class="text-muted" style="font-size:0.85rem" id="sales-search-results"></div>
+      <button class="btn btn-secondary" id="btn-print-sales">
+        <span class="material-symbols-outlined">print</span> Print Sales Report
+      </button>
     </div>
 
     <div class="stats-grid">
@@ -446,6 +476,64 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
     if (resultsLabel) {
       resultsLabel.textContent = q ? `Found ${visibleCount} items` : '';
     }
+  });
+
+  // Print Sales Report
+  tab.querySelector('#btn-print-sales')?.addEventListener('click', () => {
+    let printHTML = `
+      <div class="print-header">
+        <h2>DAILY SALES REPORT</h2>
+        <p>${formatDate(dateStr)}</p>
+      </div>
+      <div class="print-meta">
+        <div><span>Date:</span><span>${formatDate(dateStr)}</span></div>
+        <div><span>Total Billed Sales:</span><span>${formatCurrency(rawTotalAmount)}</span></div>
+        ${adjustmentAmount > 0 ? `<div><span>Counter Sales (Unbilled):</span><span>${formatCurrency(adjustmentAmount)}</span></div>` : ''}
+        <div><span>Total Revenue:</span><span>${formatCurrency(grandTotalAmount)}</span></div>
+      </div>
+      <table class="print-items" style="width:100%; border-collapse:collapse; margin-top:20px">
+        <thead>
+          <tr style="border-bottom:2px solid #000">
+            <th style="text-align:left; padding:8px 4px">Item Name</th>
+            <th style="text-align:left; padding:8px 4px">Category</th>
+            <th style="text-align:right; padding:8px 4px">Qty</th>
+            <th style="text-align:right; padding:8px 4px">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${otherItems.map(item => `
+            <tr style="border-bottom:1px dashed #ccc">
+              <td style="padding:6px 4px">${item.name}</td>
+              <td style="padding:6px 4px">${item.category}</td>
+              <td style="text-align:right; padding:6px 4px">${item.quantity}</td>
+              <td style="text-align:right; padding:6px 4px">${formatCurrency(item.amount)}</td>
+            </tr>
+          `).join('')}
+          ${adjustmentItems.length > 0 ? `
+            <tr style="background:#f9f9f9"><td colspan="4" style="padding:8px 4px; font-weight:bold; border-top:2px solid #000">Counter Sales (Unbilled)</td></tr>
+            ${adjustmentItems.map(item => `
+              <tr style="border-bottom:1px dashed #ccc">
+                <td style="padding:6px 4px">${item.name}</td>
+                <td style="padding:6px 4px">${item.category}</td>
+                <td style="text-align:right; padding:6px 4px">${item.quantity}</td>
+                <td style="text-align:right; padding:6px 4px">${formatCurrency(item.amount)}</td>
+              </tr>
+            `).join('')}
+          ` : ''}
+        </tbody>
+        <tfoot style="border-top:2px solid #000">
+          <tr style="font-weight:bold">
+            <td colspan="2" style="padding:8px 4px; text-align:right">GRAND TOTAL</td>
+            <td style="padding:8px 4px; text-align:right">${grandTotalQty}</td>
+            <td style="padding:8px 4px; text-align:right">${formatCurrency(grandTotalAmount)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="print-footer" style="margin-top:30px">
+        <p>--- End of Sales Report ---</p>
+      </div>
+    `;
+    printContent(printHTML, 'a4');
   });
 }
 
@@ -676,8 +764,11 @@ function generateExpenseReport(container, expenses, dateStr, incentivePayments =
     </div>
 
     <div class="card">
-      <div class="card-header">
+      <div class="card-header" style="justify-content:space-between">
         <span class="card-title">Daily Expenses — ${formatDate(dateStr)}</span>
+        <button class="btn btn-sm btn-secondary" id="btn-print-expenses-full">
+          <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
+        </button>
       </div>
       <table class="data-table">
         <thead>
@@ -737,6 +828,48 @@ function generateExpenseReport(container, expenses, dateStr, incentivePayments =
       </div>
     ` : ''}
   `;
+
+  // Print Expenses
+  tab.querySelector('#btn-print-expenses-full')?.addEventListener('click', () => {
+    let printHTML = `
+      <div class="print-header">
+        <h2>EXPENSE REPORT</h2>
+        <p>${formatDate(dateStr)}</p>
+      </div>
+      <div class="print-meta">
+        <div><span>Date:</span><span>${formatDate(dateStr)}</span></div>
+        <div><span>Total Expenses:</span><span>${formatCurrency(total)}</span></div>
+      </div>
+      <table class="print-items" style="width:100%; border-collapse:collapse; margin-top:20px">
+        <thead>
+          <tr style="border-bottom:2px solid #000">
+            <th style="text-align:left; padding:8px 4px">Category</th>
+            <th style="text-align:left; padding:8px 4px">Description</th>
+            <th style="text-align:right; padding:8px 4px">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dayExpenses.map(e => `
+            <tr style="border-bottom:1px dashed #ccc">
+              <td style="padding:6px 4px">${e.category}</td>
+              <td style="padding:6px 4px">${e.description}</td>
+              <td style="text-align:right; padding:6px 4px">${formatCurrency(e.amount)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot style="border-top:2px solid #000">
+          <tr style="font-weight:bold">
+            <td colspan="2" style="padding:8px 4px; text-align:right">TOTAL</td>
+            <td style="padding:8px 4px; text-align:right">${formatCurrency(total)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="print-footer" style="margin-top:30px">
+        <p>--- End of Report ---</p>
+      </div>
+    `;
+    printContent(printHTML, 'a4');
+  });
 }
 
 function generateConsumptionReport(container, orders, allRecipes, ingredientMap, dateStr) {
@@ -789,9 +922,13 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
       </div>
     </div>
 
-    ${usageList.length === 0 ?
-      '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">inventory_2</span><p>No consumption data for this date</p></div></div>' :
-      `<div class="card">
+      <div class="card">
+        <div class="card-header" style="justify-content:space-between">
+          <span class="card-title">Ingredient Consumption — ${formatDate(dateStr)}</span>
+          <button class="btn btn-sm btn-secondary" id="btn-print-consumption">
+            <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
+          </button>
+        </div>
         <table class="data-table">
           <thead>
             <tr>
@@ -818,9 +955,40 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
             `).join('')}
           </tbody>
         </table>
-      </div>`
-    }
-  `;
+      </div>
+    `;
+
+  // Print Consumption
+  tab.querySelector('#btn-print-consumption')?.addEventListener('click', () => {
+    let printHTML = `
+      <div class="print-header">
+        <h2>INGREDIENT CONSUMPTION</h2>
+        <p>${formatDate(dateStr)}</p>
+      </div>
+      <table class="print-items" style="width:100%; border-collapse:collapse; margin-top:20px">
+        <thead>
+          <tr style="border-bottom:2px solid #000">
+            <th style="text-align:left; padding:8px 4px">Ingredient</th>
+            <th style="text-align:right; padding:8px 4px">Consumed</th>
+            <th style="text-align:left; padding:8px 4px">Unit</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${usageList.map(ing => `
+            <tr style="border-bottom:1px dashed #ccc">
+              <td style="padding:6px 4px">${ing.name}</td>
+              <td style="text-align:right; padding:6px 4px">${ing.totalConsumed.toFixed(2)}</td>
+              <td style="padding:6px 4px">${ing.unit}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div class="print-footer" style="margin-top:30px">
+        <p>--- End of Report ---</p>
+      </div>
+    `;
+    printContent(printHTML, 'a4');
+  });
 }
 
 function generatePurchaseReport(container, purchases, ingredientMap, itemMap, supplierMap, dateStr) {
@@ -843,8 +1011,11 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
     </div>
 
     <div class="card">
-      <div class="card-header">
+      <div class="card-header" style="justify-content:space-between">
         <span class="card-title">Purchases — ${formatDate(dateStr)}</span>
+        <button class="btn btn-sm btn-secondary" id="btn-print-purchase">
+          <span class="material-symbols-outlined" style="font-size:16px">print</span> Print
+        </button>
       </div>
       <table class="data-table">
         <thead>
@@ -896,6 +1067,67 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
       </table>
     </div>
   `;
+
+  // Print Purchases
+  tab.querySelector('#btn-print-purchase')?.addEventListener('click', () => {
+    let printHTML = `
+      <div class="print-header">
+        <h2>PURCHASE REPORT</h2>
+        <p>${formatDate(dateStr)}</p>
+      </div>
+      <div class="print-meta">
+        <div><span>Date:</span><span>${formatDate(dateStr)}</span></div>
+        <div><span>Total Cost:</span><span>${formatCurrency(totalCost)}</span></div>
+        <div><span>Total Items:</span><span>${dayPurchases.length}</span></div>
+      </div>
+      <table class="print-items" style="width:100%; border-collapse:collapse; margin-top:20px">
+        <thead>
+          <tr style="border-bottom:2px solid #000">
+            <th style="text-align:left; padding:8px 4px">Item</th>
+            <th style="text-align:right; padding:8px 4px">Qty</th>
+            <th style="text-align:left; padding:8px 4px">Unit</th>
+            <th style="text-align:right; padding:8px 4px">Cost</th>
+            <th style="text-align:left; padding:8px 4px">Supplier</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dayPurchases.map(p => {
+            let name, unit;
+            if (p.productId) {
+              const prod = itemMap[p.productId];
+              name = prod?.name || 'Unknown';
+              unit = 'pcs';
+            } else {
+              const ing = ingredientMap[p.ingredientId];
+              name = ing?.name || 'Unknown';
+              unit = ing?.unit || '—';
+            }
+            const sup = supplierMap[p.supplierId];
+            return `
+              <tr style="border-bottom:1px dashed #ccc">
+                <td style="padding:6px 4px">${name}</td>
+                <td style="text-align:right; padding:6px 4px">${p.quantity}</td>
+                <td style="padding:6px 4px">${unit}</td>
+                <td style="text-align:right; padding:6px 4px">${formatCurrency(p.cost)}</td>
+                <td style="padding:6px 4px">${sup?.name || '—'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        <tfoot style="border-top:2px solid #000">
+          <tr style="font-weight:bold">
+            <td colspan="3" style="padding:8px 4px; text-align:right">TOTAL COST</td>
+            <td style="padding:8px 4px; text-align:right">${formatCurrency(totalCost)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      <div class="print-footer" style="margin-top:30px">
+        <p>--- End of Purchase Report ---</p>
+      </div>
+    `;
+    printContent(printHTML, 'a4');
+  });
 }
 
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
