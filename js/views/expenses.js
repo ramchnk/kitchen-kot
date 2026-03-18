@@ -150,8 +150,10 @@ function renderExpensesList(container, expenses) {
     tbody.querySelectorAll('.btn-delete-expense').forEach(btn => {
         btn.onclick = async () => {
             if (confirm('Are you sure you want to delete this expense?')) {
-                await DB.remove('expenses', btn.dataset.id);
-                showToast('Expense deleted', 'success');
+                const id = btn.dataset.id;
+                await DB.remove('expenses', id);
+                await DB.deleteWalletTransactionBySourceId(id);
+                showToast('Expense deleted and wallet updated', 'success');
                 loadExpenses(container);
             }
         };

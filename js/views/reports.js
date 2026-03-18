@@ -1388,25 +1388,26 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       await DB.recalculateWalletTotals();
     }
 
+    let totalAdjIncome = 0;
+    let totalAdjSurplus = 0;
+    let adjProducts = [];
+    let surpProducts = [];
+
     for (const input of inputs) {
       const productId = parseInt(input.dataset.productId);
       const actualClosing = parseInt(input.value) || 0;
 
-      // Find the product data to get expected closing and selling price
       const prodData = productData.find(p => p.id === productId);
       const product = await DB.getById('items', productId);
       if (!product || !prodData) continue;
 
-      // Update currentStock
       product.currentStock = actualClosing;
       await DB.update('items', product);
       updatedCount++;
 
-      // Calculate adjustment (unbilled counter sales)
       const adjustedQty = prodData.expectedClosing - actualClosing;
       const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
 
-      // Always add an adjustment record so next day can pull the correct actualClosing
       await DB.add('stockAdjustments', {
         productId: productId,
         productName: product.name,
@@ -1421,17 +1422,25 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         createdAt: new Date().toISOString(),
       });
 
-      if (adjustedQty !== 0) {
+      if (adjustedQty > 0) {
+        totalAdjIncome += adjustedAmount;
+        adjProducts.push(product.name);
         adjustmentCount++;
-        // Record Wallet Transaction for adjustments
-        if (adjustedQty > 0) {
-           // EOD Counter Sales (Unbilled) -> Income
-           await DB.recordWalletTransaction('income', adjustedAmount, `EOD Counter Sale (Unbilled): ${product.name}`, `STOCK-ADJ-${dateStr}`);
-        } else {
-           // EOD Stock Surplus (Overstock) -> Deduct Income, Add Outflow
-           await DB.recordWalletTransaction('adjustment-surplus', Math.abs(adjustedAmount), `EOD Stock Surplus: ${product.name}`, `STOCK-SURP-${dateStr}`);
-        }
+      } else if (adjustedQty < 0) {
+        totalAdjSurplus += Math.abs(adjustedAmount);
+        surpProducts.push(product.name);
+        adjustmentCount++;
       }
+    }
+
+    // Record Consolidated Wallet Transactions
+    if (totalAdjIncome > 0) {
+      const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
+      await DB.recordWalletTransaction('income', totalAdjIncome, desc, `STOCK-ADJ-${dateStr}`);
+    }
+    if (totalAdjSurplus > 0) {
+      const desc = `EOD Stock Surplus: ${surpProducts.join(', ')}`;
+      await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`);
     }
 
     const msg = adjustmentCount > 0

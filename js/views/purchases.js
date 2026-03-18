@@ -180,9 +180,14 @@ async function loadPurchases(container, ingredientMap, productMap, grocerySuppli
       const ids = JSON.parse(btn.dataset.batch);
       if (!confirm(`Delete this purchase with ${ids.length} item(s)? Stock will be reversed.`)) return;
 
+      let batchId = null;
+      let isCash = false;
+
       for (const id of ids) {
         const p = await DB.getById('purchases', id);
         if (p) {
+          batchId = p.batchId;
+          isCash = p.paymentType === 'cash';
           if (p.ingredientId) {
             const ing = await DB.getById('ingredients', p.ingredientId);
             if (ing) {
@@ -199,7 +204,12 @@ async function loadPurchases(container, ingredientMap, productMap, grocerySuppli
           await DB.remove('purchases', p.id);
         }
       }
-      showToast('Purchase deleted and stock reversed', 'success');
+
+      if (isCash && batchId) {
+        await DB.deleteWalletTransactionBySourceId(batchId);
+      }
+
+      showToast('Purchase deleted, stock reversed and wallet updated', 'success');
       loadPurchases(container, ingredientMap, productMap, grocerySupplierMap);
     });
   });

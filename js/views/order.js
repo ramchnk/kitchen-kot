@@ -1144,6 +1144,30 @@ async function updateIngredientConsumption(orderItems) {
   }
 }
 
+async function reverseIngredientConsumption(orderItems) {
+  const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+
+  for (const orderItem of orderItems) {
+    const item = await DB.getById('items', orderItem.itemId);
+    if (item && DIRECT_PURCHASE_CATEGORIES.includes((item.category || '').toUpperCase())) {
+      // Add back product stock
+      item.currentStock = (item.currentStock || 0) + orderItem.quantity;
+      await DB.update('items', item);
+    } else {
+      // Add back ingredient stock via recipes
+      const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
+      for (const recipe of recipes) {
+        const ingredient = await DB.getById('ingredients', recipe.ingredientId);
+        if (ingredient) {
+          const addedBack = recipe.quantity * orderItem.quantity;
+          ingredient.currentStock = (ingredient.currentStock || 0) + addedBack;
+          await DB.update('ingredients', ingredient);
+        }
+      }
+    }
+  }
+}
+
 // ===== Completed Bills Modal =====
 // ===== Completed Bills Modal =====
 async function showCompletedBills(initialDate = todayISO()) {
@@ -1247,6 +1271,9 @@ async function showCompletedBills(initialDate = todayISO()) {
                       <button class="btn btn-sm btn-secondary btn-reprint-kot" data-id="${o.id}" title="Reprint KOT">
                         <span class="material-symbols-outlined" style="font-size:16px">restaurant</span>
                       </button>
+                      <button class="btn btn-sm btn-ghost text-danger btn-cancel-bill" data-id="${o.id}" title="Cancel & Reverse Bill">
+                        <span class="material-symbols-outlined" style="font-size:16px">cancel</span>
+                      </button>
                       ` : ''}
                     </div>
                   </td>
@@ -1303,6 +1330,33 @@ async function showCompletedBills(initialDate = todayISO()) {
           }
           
           showToast(`Reprinting KOT #${order.orderNumber || order.id}`, 'success');
+        });
+      });
+
+      tableContainer.querySelectorAll('.btn-cancel-bill').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const order = await DB.getById('orders', parseInt(btn.dataset.id));
+          if (!order) return;
+
+          if (confirm(`CRITICAL: Are you sure you want to CANCEL Bill #${order.orderNumber}? This will reverse stock and delete wallet income record.`)) {
+            try {
+              // 1. Mark as cancelled
+              order.status = 'cancelled';
+              await DB.update('orders', order);
+
+              // 2. Reverse stock consumption
+              await reverseIngredientConsumption(order.items);
+
+              // 3. Reverse wallet transaction
+              await DB.deleteWalletTransactionBySourceId(order.id);
+
+              showToast(`Bill #${order.orderNumber} cancelled and records reversed`, 'warning');
+              loadHistory(dateStr); // Refresh history
+            } catch (err) {
+              console.error(err);
+              showToast('Error cancelling bill: ' + err.message, 'error');
+            }
+          }
         });
       });
 

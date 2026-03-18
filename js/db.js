@@ -305,17 +305,20 @@ export const DB = {
   recalculateWalletTotals: async () => {
     console.log('Recalculating wallet totals from history...');
     const transactions = await DB.getAll('walletTransactions');
-    const account = await DB.getById('accounts', _accountId); // This is special, accounts is parent
-    const openingBalance = Number(account?.walletBalance || 0);
+    
+    // Correctly fetch the high-level account document for opening balance
+    const accountRef = doc(firestore, 'accounts', _accountId);
+    const accountSnap = await getDoc(accountRef);
+    const openingBalance = Number(accountSnap.data()?.walletBalance || 0);
 
     const totals = transactions.reduce((acc, t) => {
+      const numAmount = Number(t.amount || 0);
       if (t.type === 'income') {
-        acc.totalIncome += Number(t.amount || 0);
+        acc.totalIncome += numAmount;
       } else if (t.type === 'adjustment-surplus') {
-        acc.totalIncome -= Number(t.amount || 0);
-        acc.totalOutflow += Number(t.amount || 0);
+        acc.totalIncome -= numAmount;
       } else {
-        acc.totalOutflow += Number(t.amount || 0);
+        acc.totalOutflow += numAmount;
       }
       return acc;
     }, { totalIncome: 0, totalOutflow: 0 });
@@ -358,10 +361,9 @@ export const DB = {
         summary.totalIncome += numAmount;
         summary.currentBalance += numAmount;
       } else if (type === 'adjustment-surplus') {
-        // Rule: deduct Total Income and add Total Outflow (Balance reduces by 2x)
+        // Fix: Only deduct from Income (Balance reduces by 1x)
         summary.totalIncome -= numAmount;
-        summary.totalOutflow += numAmount;
-        summary.currentBalance -= (2 * numAmount);
+        summary.currentBalance -= numAmount;
       } else {
         summary.totalOutflow += numAmount;
         summary.currentBalance -= numAmount;
@@ -379,9 +381,51 @@ export const DB = {
       transaction.set(txRef, { ...transactionRecord, id: nextId });
 
       // 3. Update summary
-      transaction.set(summaryRef, summary);
+      await transaction.set(summaryRef, summary);
 
       return nextId;
+    });
+  },
+  deleteWalletTransactionBySourceId: async (sourceId) => {
+    const transactions = await DB.getFiltered('walletTransactions', { 
+      where: ['sourceId', '==', String(sourceId)] 
+    });
+    if (transactions.length === 0) return false;
+    
+    for (const t of transactions) {
+      await DB.remove('walletTransactions', t.id);
+    }
+    await DB.recalculateWalletTotals();
+    return true;
+  },
+  deleteWalletTransaction: async (id) => {
+    const summaryRef = tenantDoc('walletSummary', 'latest');
+    const txRef = tenantDoc('walletTransactions', String(id));
+
+    return await runTransaction(firestore, async (transaction) => {
+      const snap = await transaction.get(txRef);
+      if (!snap.exists()) throw new Error('Transaction not found');
+      const t = snap.data();
+
+      const summarySnap = await transaction.get(summaryRef);
+      let summary = summarySnap.exists() ? summarySnap.data() : { totalIncome: 0, totalOutflow: 0, currentBalance: 0 };
+      
+      const numAmount = Number(t.amount);
+      if (t.type === 'income') {
+        summary.totalIncome -= numAmount;
+        summary.currentBalance -= numAmount;
+      } else if (t.type === 'adjustment-surplus') {
+        summary.totalIncome += numAmount;
+        summary.currentBalance += numAmount;
+      } else {
+        summary.totalOutflow -= numAmount;
+        summary.currentBalance += numAmount;
+      }
+      summary.updatedAt = new Date().toISOString();
+
+      transaction.delete(txRef);
+      transaction.set(summaryRef, summary);
+      return true;
     });
   }
 };

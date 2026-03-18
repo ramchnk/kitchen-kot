@@ -25,6 +25,9 @@ export async function renderWalletView(container) {
         </div>
       </div>
       <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" id="btn-recalculate-wallet" title="Correct balance from history">
+          <span class="material-symbols-outlined">refresh</span> Recalculate
+        </button>
         <button class="btn btn-secondary" id="btn-add-wallet-entry">
           <span class="material-symbols-outlined">add</span> New Entry
         </button>
@@ -93,6 +96,7 @@ export async function renderWalletView(container) {
             <th>Type</th>
             <th>Description</th>
             <th class="text-right">Amount</th>
+            ${Auth.isAdmin() ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody id="wallet-transactions-body">
@@ -102,8 +106,32 @@ export async function renderWalletView(container) {
     </div>
   `;
 
+  document.getElementById('btn-recalculate-wallet')?.addEventListener('click', async () => {
+    if (confirm('Recalculate wallet totals from entire transaction history? This will fix any balance discrepancies.')) {
+      showToast('Recalculating...', 'info');
+      await DB.recalculateWalletTotals();
+      showToast('Wallet balance corrected!', 'success');
+      renderWalletView(container);
+    }
+  });
   document.getElementById('btn-add-wallet-entry')?.addEventListener('click', () => showAddEntryModal(container));
   document.getElementById('btn-withdraw')?.addEventListener('click', () => showWithdrawModal(container, balance));
+  
+  // Wire up delete buttons
+  container.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
+    btn.onclick = async () => {
+      if (confirm('Are you sure you want to permanently delete this wallet record? The balance will be adjusted accordingly.')) {
+        try {
+          await DB.deleteWalletTransaction(btn.dataset.id);
+          showToast('Record deleted and balance updated', 'success');
+          renderWalletView(container);
+        } catch (err) {
+          showToast('Error: ' + err.message, 'error');
+        }
+      }
+    };
+  });
+
   attachWalletFilters(container, transactions);
 }
 
@@ -185,11 +213,21 @@ function renderTransactionRows(transactions, openingBalance) {
               <td class="text-right font-mono" style="font-weight:700; color:${isPositive ? '#22c55e' : '#ef4444'}">
                 ${isPositive ? '+' : '-'}${formatCurrency(t.amount)}
               </td>
+              ${Auth.isAdmin() ? `
+              <td class="text-center">
+                <button class="btn btn-sm btn-ghost text-danger btn-delete-wallet-txn" data-id="${t.id}" title="Delete Record">
+                  <span class="material-symbols-outlined" style="font-size:18px">delete</span>
+                </button>
+              </td>
+              ` : ''}
             </tr>`;
   }).join('');
 
   return rows;
 }
+
+// In the main renderWalletView function, I need to add the header for the Actions column
+// Let's find where the table head is.
 
 function attachWalletFilters(container, recentTransactions) {
   const dateInput = document.getElementById('filter-wallet-date');
@@ -248,12 +286,22 @@ function attachWalletFilters(container, recentTransactions) {
     filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     // Render results
-    if (filtered.length === 0) {
-       tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
-    } else {
-       tbody.innerHTML = renderTransactionRows(filtered, 0);
-    }
-  };
+     if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
+     } else {
+        tbody.innerHTML = renderTransactionRows(filtered, 0);
+        // Re-wire delete buttons for filtered results
+        tbody.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
+          btn.onclick = async () => {
+            if (confirm('Are you sure you want to delete this record?')) {
+               await DB.deleteWalletTransaction(btn.dataset.id);
+               showToast('Record deleted', 'success');
+               renderWalletView(container);
+            }
+          };
+        });
+     }
+   };
 
   dateInput?.addEventListener('change', updateFilters);
   typeSelect?.addEventListener('change', updateFilters);
