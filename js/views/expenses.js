@@ -87,7 +87,19 @@ async function loadExpenses(container) {
             isLocked: true 
         }));
 
-    const allExpenses = [...manualExpenses, ...incentiveExpenses];
+    const supplierExpenses = walletPayments
+        .filter(p => p.type === 'purchase')
+        .map(p => ({
+            id: p.id,
+            category: 'Supplier Payment',
+            description: p.description,
+            amount: p.amount,
+            date: p.date,
+            createdAt: p.createdAt,
+            isLocked: true
+        }));
+
+    const allExpenses = [...manualExpenses, ...incentiveExpenses, ...supplierExpenses];
     allExpenses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     renderExpensesList(container, allExpenses);
@@ -123,7 +135,7 @@ function renderExpensesList(container, expenses) {
       ${Auth.isAdmin() ? `
       <td class="text-center">
         ${e.isLocked ? `
-          <span class="material-symbols-outlined" title="Automatic Entry (Waiter Incentive)" style="font-size:18px;color:var(--text-muted)">lock</span>
+          <span class="material-symbols-outlined" title="Automatic Entry (${e.category})" style="font-size:18px;color:var(--text-muted)">lock</span>
         ` : `
           <button class="btn btn-sm btn-ghost btn-delete-expense" data-id="${e.id}" title="Delete">
             <span class="material-symbols-outlined" style="font-size:18px;color:var(--danger)">delete</span>

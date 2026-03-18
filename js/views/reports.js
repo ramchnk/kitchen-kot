@@ -176,6 +176,7 @@ async function generateReports(container) {
     where: [['date', '==', dateStr]]
   });
   const incentivePayments = payments.filter(p => p.sourceId?.startsWith('INC-PAY-'));
+  const supplierWalletPayments = payments.filter(p => p.type === 'purchase');
 
   // Special check: If no orders with 'date' field, try falling back to today if it is today
   if (orders.length === 0 && isToday(dateStr)) {
@@ -193,7 +194,7 @@ async function generateReports(container) {
   generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
   generateProductStockReport(orders, purchases, masterItems, dateStr, stockAdjustments, orders);
-  generateExpenseReport(container, expenses, dateStr, incentivePayments);
+  generateExpenseReport(container, expenses, dateStr, incentivePayments, supplierWalletPayments);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
 
@@ -727,7 +728,7 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
   });
 }
 
-function generateExpenseReport(container, expenses, dateStr, incentivePayments = []) {
+function generateExpenseReport(container, expenses, dateStr, incentivePayments = [], supplierWalletPayments = []) {
   const tab = document.getElementById('tab-expenses');
   
   // Convert incentive payments to expense-like objects for reporting
@@ -739,7 +740,19 @@ function generateExpenseReport(container, expenses, dateStr, incentivePayments =
     isManual: false
   }));
 
-  const dayExpenses = [...expenses.filter(e => e.date === dateStr), ...formattedIncentiveExpenses];
+  const formattedSupplierExpenses = supplierWalletPayments.map(p => ({
+    category: 'Supplier Payment',
+    description: p.description,
+    amount: p.amount,
+    date: p.date,
+    isManual: false
+  }));
+
+  const dayExpenses = [
+    ...expenses.filter(e => e.date === dateStr), 
+    ...formattedIncentiveExpenses,
+    ...formattedSupplierExpenses
+  ];
   const total = dayExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
   const categories = {};
