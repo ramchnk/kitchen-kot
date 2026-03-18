@@ -1359,6 +1359,22 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       await DB.remove('stockAdjustments', adj.id);
     }
 
+    // Delete any existing wallet transactions for this date's stock adjustments
+    // to prevent duplicate entries when user clicks Save multiple times
+    const allWalletTxns = await DB.getAll('walletTransactions');
+    const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
+    const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
+    const existingStockWalletTxns = allWalletTxns.filter(t => 
+      t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId
+    );
+    for (const txn of existingStockWalletTxns) {
+      await DB.remove('walletTransactions', txn.id);
+    }
+    // If we deleted old wallet transactions, recalculate the wallet totals
+    if (existingStockWalletTxns.length > 0) {
+      await DB.recalculateWalletTotals();
+    }
+
     for (const input of inputs) {
       const productId = parseInt(input.dataset.productId);
       const actualClosing = parseInt(input.value) || 0;
