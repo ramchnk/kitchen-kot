@@ -1120,7 +1120,7 @@ async function loadExistingOrderForTable(tableId) {
 }
 
 async function updateIngredientConsumption(orderItems) {
-  const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+  const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS'];
 
   for (const orderItem of orderItems) {
     // Check if this is a direct-purchase product (no ingredients)

@@ -1139,7 +1139,7 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
 function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, allStockAdjustments = [], allOrders = []) {
   const tab = document.getElementById('tab-product-stock');
-  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
+  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS'];
 
   const products = allItems.filter(i => DIRECT_CATEGORIES.includes((i.category || '').toUpperCase().trim()));
 
@@ -1159,13 +1159,13 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
   const dayPurchases = allPurchases.filter(p => p.productId);
 
   const productData = products.map(prod => {
-    // Purchased on selected date
+    // Purchased on selected date (strictly filter by dateStr to avoid double counting from range history)
     const purchasedToday = dayPurchases
-      .filter(p => p.productId === prod.id)
+      .filter(p => p.productId === prod.id && p.date === dateStr)
       .reduce((s, p) => s + (p.quantity || 0), 0);
 
     const purchaseCost = dayPurchases
-      .filter(p => p.productId === prod.id)
+      .filter(p => p.productId === prod.id && p.date === dateStr)
       .reduce((s, p) => s + (p.cost || 0), 0);
 
     let sold = 0;
