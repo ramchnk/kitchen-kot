@@ -142,32 +142,25 @@ async function generateReports(container) {
     }
   });
 
-  // 4. Targeted Database Reads: ONLY for the selected date to save costs
-  let orders = await DB.getFiltered('orders', {
+  // 4. Targeted Database Reads: Load all billed orders and filter locally to avoid Index requirements
+  const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+  
+  const rangeOrders = allBilled.filter(o => {
+    const d = (o.date || (o.billedAt || '').substring(0, 10));
+    return d >= earliestAnchorDate && d <= dateStr;
+  });
+
+  const rangePurchases = await DB.getFiltered('purchases', {
     where: [
-      ['status', '==', 'billed'],
-      ['date', '==', dateStr]
+      ['date', '>=', earliestAnchorDate],
+      ['date', '<=', dateStr]
     ]
   });
 
-  // 5. HYBRID FALLBACK: Include orders where 'date' field is missing but 'billedAt' matches.
-  // This syncs up the report with the "Completed Bills" modal which uses billedAt prefix.
-  const allBilled = await DB.getByIndex('orders', 'status', 'billed');
-  const missingDateOrders = allBilled.filter(o => 
-    !o.date && o.billedAt && o.billedAt.startsWith(dateStr)
-  );
+  // Extract only orders specifically for the selected date for summary reports
+  const orders = rangeOrders.filter(o => (o.date === dateStr || (!o.date && o.billedAt?.startsWith(dateStr))));
+  const purchases = rangePurchases.filter(p => p.date === dateStr);
   
-  if (missingDateOrders.length > 0) {
-    console.log(`Found ${missingDateOrders.length} bills missing 'date' field, adding to report.`);
-    orders = [...orders, ...missingDateOrders];
-    // Sort by sequence to keep it clean
-    orders.sort((a, b) => (a.orderNumber || '').localeCompare(b.orderNumber || ''));
-  }
-
-  const purchases = await DB.getFiltered('purchases', {
-    where: [['date', '==', dateStr]]
-  });
-
   const expenses = await DB.getFiltered('expenses', {
     where: [['date', '==', dateStr]]
   });
@@ -193,7 +186,7 @@ async function generateReports(container) {
   generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr, incentivePayments);
   generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(orders, purchases, masterItems, dateStr, stockAdjustments, orders);
+  generateProductStockReport(orders, rangePurchases, masterItems, dateStr, stockAdjustments, rangeOrders);
   generateExpenseReport(container, expenses, dateStr, incentivePayments, supplierWalletPayments);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
 }
@@ -1195,10 +1188,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       .filter(a => a.productId === prod.id)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    if (isToday(dateStr)) {
-      // Today optimization: Opening = Current - Today's Changes
-      openingStock = (prod.currentStock || 0) - purchasedToday + sold;
-    } else if (prodPastAdjustments.length > 0) {
+    if (prodPastAdjustments.length > 0) {
       const latestAdj = prodPastAdjustments[0];
       const anchorDate = latestAdj.date;
       const baseStock = latestAdj.actualClosing;
@@ -1213,14 +1203,15 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         const d = (o.date || (o.billedAt || '').substring(0, 10));
         return d > anchorDate && d < dateStr;
       }).reduce((sum, o) => {
-        const item = o.items.find(i => i.itemId === prod.id);
+        const item = (o.items || []).find(i => i.itemId === prod.id);
         return sum + (item ? item.quantity : 0);
       }, 0);
 
       openingStock = baseStock + interveningPurchases - interveningSales;
+    } else if (isToday(dateStr)) {
+      // If NO past adjustment exists, we use live stock minus today's changes
+      openingStock = (prod.currentStock || 0) - purchasedToday + sold;
     } else {
-      // No adjustment and not today, and no history loaded. 
-      // We show 0 or indicate missing link. 
       openingStock = 0; 
     }
 
