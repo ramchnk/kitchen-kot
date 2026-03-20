@@ -339,7 +339,7 @@ function showPaymentForm(supplier, outstanding, container) {
     const paymentId = await DB.add('supplierPayments', payment);
 
     // Record Wallet Transaction (Payment reduces wallet)
-    await DB.recordWalletTransaction('purchase', amount, `Supplier Payment: ${supplier.name} (${payment.paymentMode.toUpperCase()})`, paymentId);
+    await DB.recordWalletTransaction('purchase', amount, `Supplier Payment: ${supplier.name} (${payment.paymentMode.toUpperCase()})`, paymentId, paymentDate);
 
     showToast(`Payment of ${formatCurrency(amount)} recorded for ${supplier.name}`, 'success');
     closeModal();

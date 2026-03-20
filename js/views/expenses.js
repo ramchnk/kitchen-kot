@@ -246,7 +246,7 @@ function showAddExpenseModal(container) {
             });
 
             // Record Wallet Transaction (Expense reduces wallet)
-            await DB.recordWalletTransaction('expense', amount, `Expense: ${category} - ${description}`, expenseId);
+            await DB.recordWalletTransaction('expense', amount, `Expense: ${category} - ${description}`, expenseId, date);
 
             showToast('Expense recorded!', 'success');
             closeModal();

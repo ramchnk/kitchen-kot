@@ -469,7 +469,7 @@ function showPurchaseForm(container) {
     // Record Wallet Transaction if Cash
     if (paymentType === 'cash') {
       const itemSummary = purchaseItems.map(i => i.itemName).join(', ');
-      await DB.recordWalletTransaction('purchase', totalCost, `Cash Purchase: ${itemSummary}`, batchId);
+      await DB.recordWalletTransaction('purchase', totalCost, `Cash Purchase: ${itemSummary}`, batchId, date);
     }
 
     // Create supplier bill for ALL purchases (both cash and credit) for accurate supplier tracking

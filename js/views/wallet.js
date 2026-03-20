@@ -1,7 +1,7 @@
 // ===== Wallet View =====
 import { DB } from '../db.js';
 import { Auth } from '../auth.js';
-import { formatCurrency, formatDateTime, showToast, showModal, closeModal } from '../utils.js';
+import { formatCurrency, formatDateTime, todayISO, showToast, showModal, closeModal } from '../utils.js';
 
 export async function renderWalletView(container) {
   // 1. Fetch persistent totals from the dedicated summary record
@@ -152,6 +152,10 @@ function showAddEntryModal(container) {
       <label class="form-label">Description *</label>
       <input type="text" class="form-input" id="modal-entry-desc" placeholder="e.g. Staff Deduction, Cash Injection">
     </div>
+    <div class="form-group">
+      <label class="form-label">Date *</label>
+      <input type="date" class="form-input" id="modal-entry-date" value="${todayISO()}">
+    </div>
   `, {
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -168,7 +172,8 @@ function showAddEntryModal(container) {
     if (!desc) { showToast('Description is required', 'error'); return; }
 
     try {
-      await DB.recordWalletTransaction(type, amount, desc);
+      const date = document.getElementById('modal-entry-date').value;
+      await DB.recordWalletTransaction(type, amount, desc, null, date);
       showToast('Entry recorded successfully', 'success');
       closeModal();
       renderWalletView(container);
@@ -325,6 +330,10 @@ function showWithdrawModal(container, currentBalance) {
       <label class="form-label">Description / Purpose *</label>
       <input type="text" class="form-input" id="modal-withdraw-desc" placeholder="e.g. Bank deposit, Personal use">
     </div>
+    <div class="form-group">
+      <label class="form-label">Withdrawal Date *</label>
+      <input type="date" class="form-input" id="modal-withdraw-date" value="${todayISO()}">
+    </div>
   `, {
     footer: `
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -350,7 +359,8 @@ function showWithdrawModal(container, currentBalance) {
     }
 
     try {
-      await DB.recordWalletTransaction('withdrawal', amount, `Withdrawal: ${desc}`);
+      const date = document.getElementById('modal-withdraw-date').value;
+      await DB.recordWalletTransaction('withdrawal', amount, `Withdrawal: ${desc}`, null, date);
       showToast('Withdrawal recorded successfully', 'success');
       closeModal();
       renderWalletView(container);

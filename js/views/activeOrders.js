@@ -136,7 +136,7 @@ export async function renderActiveOrdersView(container) {
         const acCharge = order.acCharge || 0;
         const proportionalAc = subTotal > 0 ? (nonLiquorSubtotal / subTotal) * acCharge : 0;
         const walletAmount = nonLiquorSubtotal + proportionalAc;
-        await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+        await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
       }
 
       showToast(`Order #${order.orderNumber} billed!`, 'success');

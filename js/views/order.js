@@ -890,7 +890,7 @@ async function handleBill() {
       const totals = calculateTotals();
       const proportionalAc = totals.subTotal > 0 ? (nonLiquorSubtotal / totals.subTotal) * totals.acCharge : 0;
       const walletAmount = nonLiquorSubtotal + proportionalAc;
-      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
     }
 
     showToast(`Bill #${order.orderNumber} generated!`, 'success');
@@ -997,7 +997,7 @@ async function handleSaveOrder() {
       const totals = calculateTotals();
       const proportionalAc = totals.subTotal > 0 ? (nonLiquorSubtotal / totals.subTotal) * totals.acCharge : 0;
       const walletAmount = nonLiquorSubtotal + proportionalAc;
-      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id);
+      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
     }
 
     // NO Bill print — only KOT was printed
