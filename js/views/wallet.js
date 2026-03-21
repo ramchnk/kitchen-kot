@@ -7,9 +7,29 @@ export async function renderWalletView(container) {
   // 1. Fetch persistent totals from the dedicated summary record
   const walletSummary = await DB.getWalletSummary();
   
-  // 2. Fetch history (limit to 50 for display, we don't need all for totals anymore)
-  const transactions = await DB.getRecent('walletTransactions', 50);
-  transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  // 2. Fetch history and account opening balance to compute running ledger
+  const openingBalance = await DB.getAccountBalance();
+  const allTransactions = await DB.getAll('walletTransactions');
+  
+  // Sort oldest first to calculate running balance accurately
+  allTransactions.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  let currentLoopBalance = openingBalance;
+  const ledger = allTransactions.map(t => {
+    const op = currentLoopBalance;
+    const numAmount = Number(t.amount || 0);
+    if (t.type === 'income') {
+      currentLoopBalance += numAmount;
+    } else if (t.type === 'adjustment-surplus') {
+      currentLoopBalance -= numAmount;
+    } else {
+      currentLoopBalance -= numAmount;
+    }
+    return { ...t, opening: op, closing: currentLoopBalance };
+  });
+
+  // Reverse ledger for display (newest first)
+  const displayTransactions = [...ledger].reverse();
 
   const totalIncome = walletSummary.totalIncome || 0;
   const totalOutflow = walletSummary.totalOutflow || 0;
@@ -95,12 +115,14 @@ export async function renderWalletView(container) {
             <th>Date & Time</th>
             <th>Type</th>
             <th>Description</th>
+            <th class="text-right">Opening Bal</th>
             <th class="text-right">Amount</th>
+            <th class="text-right">Closing Bal</th>
             ${Auth.isAdmin() ? '<th class="text-center">Actions</th>' : ''}
           </tr>
         </thead>
         <tbody id="wallet-transactions-body">
-          ${renderTransactionRows(transactions, 0)}
+          ${renderTransactionRows(displayTransactions.slice(0, 100), openingBalance)}
         </tbody>
       </table>
     </div>
@@ -132,7 +154,7 @@ export async function renderWalletView(container) {
     };
   });
 
-  attachWalletFilters(container, transactions);
+  attachWalletFilters(container, ledger, openingBalance);
 }
 
 function showAddEntryModal(container) {
@@ -183,22 +205,15 @@ function showAddEntryModal(container) {
   });
 }
 
-function renderTransactionRows(transactions, openingBalance) {
+function renderTransactionRows(transactions, initialOpeningBalance) {
   let rows = '';
 
-  if (openingBalance > 0) {
-    rows += `
-            <tr style="background: var(--bg-surface)">
-              <td class="text-muted">—</td>
-              <td><span class="status-badge" style="background:rgba(59, 130, 246, 0.1); color:#3b82f6">OPENING</span></td>
-              <td><div style="font-weight:600">Initial Balance (From Database)</div></td>
-              <td class="text-right font-mono" style="font-weight:700; color:#3b82f6">+${formatCurrency(openingBalance)}</td>
-            </tr>
-        `;
-  }
+  // Only show the global opening balance if we are at the very end of the list (oldest items)
+  // or if we explicitly passed it in for a small list. 
+  // However, with the new ledger logic, every row has its own opening/closing.
 
-  if (transactions.length === 0 && openingBalance === 0) {
-    return `<tr><td colspan="4"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found</p></div></td></tr>`;
+  if (transactions.length === 0) {
+    return `<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found</p></div></td></tr>`;
   }
 
   rows += transactions.map(t => {
@@ -215,9 +230,11 @@ function renderTransactionRows(transactions, openingBalance) {
                 <div style="font-weight:600">${t.description}</div>
                 ${t.sourceId ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Ref ID: ${t.sourceId}</div>` : ''}
               </td>
+              <td class="text-right font-mono" style="color:var(--text-muted)">${formatCurrency(t.opening)}</td>
               <td class="text-right font-mono" style="font-weight:700; color:${isPositive ? '#22c55e' : '#ef4444'}">
                 ${isPositive ? '+' : '-'}${formatCurrency(t.amount)}
               </td>
+              <td class="text-right font-mono" style="font-weight:700;color:var(--text-primary)">${formatCurrency(t.closing)}</td>
               ${Auth.isAdmin() ? `
               <td class="text-center">
                 <button class="btn btn-sm btn-ghost text-danger btn-delete-wallet-txn" data-id="${t.id}" title="Delete Record">
@@ -234,7 +251,7 @@ function renderTransactionRows(transactions, openingBalance) {
 // In the main renderWalletView function, I need to add the header for the Actions column
 // Let's find where the table head is.
 
-function attachWalletFilters(container, recentTransactions) {
+function attachWalletFilters(container, ledger, openingBalance) {
   const dateInput = document.getElementById('filter-wallet-date');
   const typeSelect = document.getElementById('filter-wallet-type');
   const clearBtn = document.getElementById('btn-clear-wallet-filters');
@@ -244,38 +261,16 @@ function attachWalletFilters(container, recentTransactions) {
     const dateVal = dateInput.value;
     const typeVal = typeSelect.value;
 
-    // Immediately show loading to prevent old data from lingering
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4"><span class="material-symbols-outlined spinning">sync</span> Searching...</td></tr>';
+    // Immediately show loading
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4"><span class="material-symbols-outlined spinning">sync</span> Searching...</td></tr>';
 
-    let filtered = [];
+    let filtered = [...ledger];
 
     if (dateVal) {
-      // 1. Fetch from DB for this specific date
-      const dbResults = await DB.getFiltered('walletTransactions', [{
-        field: 'date',
-        operator: '==',
-        value: dateVal
-      }]);
-
-      // 2. Also check our 'recent' set for any matches (handles items without the new date field)
-      // STRICTOR FILTER: ensure they actually belong to the selected date
-      const recentMatches = recentTransactions.filter(t => {
+      filtered = filtered.filter(t => {
         const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
         return itemDate === dateVal;
       });
-
-      // Merge and remove duplicates by ID
-      const merged = new Map();
-      [...dbResults, ...recentMatches].forEach(t => merged.set(t.id, t));
-      
-      // FINAL DOUBLE-CHECK: Ensure every single item in the merged list matches the date
-      filtered = Array.from(merged.values()).filter(t => {
-        const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
-        return itemDate === dateVal;
-      });
-    } else {
-      // No date filter, use the recent 100
-      filtered = [...recentTransactions];
     }
 
     // Apply Type Filter
@@ -287,14 +282,14 @@ function attachWalletFilters(container, recentTransactions) {
       }
     }
 
-    // Always sort by time
+    // Always sort by time (newest first for display)
     filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     // Render results
      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
      } else {
-        tbody.innerHTML = renderTransactionRows(filtered, 0);
+        tbody.innerHTML = renderTransactionRows(filtered, openingBalance);
         // Re-wire delete buttons for filtered results
         tbody.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
           btn.onclick = async () => {

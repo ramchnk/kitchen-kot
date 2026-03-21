@@ -302,6 +302,11 @@ export const DB = {
     if (snap.exists()) return snap.data();
     return { totalIncome: 0, totalOutflow: 0, currentBalance: 0 };
   },
+  getAccountBalance: async () => {
+    const accountRef = doc(firestore, 'accounts', _accountId);
+    const accountSnap = await getDoc(accountRef);
+    return Number(accountSnap.data()?.walletBalance || 0);
+  },
   recalculateWalletTotals: async () => {
     console.log('Recalculating wallet totals from history...');
     const transactions = await DB.getAll('walletTransactions');
