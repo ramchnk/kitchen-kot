@@ -120,18 +120,15 @@ export async function renderRecipesView(container) {
 }
 
 function showAddRecipeForm(itemId, itemName, ingredients, container) {
-  const ingOptions = ingredients
-    .filter(i => i.active !== false)
-    .map(i => `<option value="${i.id}">${i.name} (${i.unit})</option>`)
-    .join('');
-
   showModal(`Add Ingredient to ${itemName}`, `
     <div class="form-group">
       <label class="form-label">Ingredient *</label>
-      <select class="form-select" id="modal-recipe-ingredient">
-        <option value="">Select ingredient</option>
-        ${ingOptions}
-      </select>
+      <div class="search-container">
+        <span class="material-symbols-outlined">search</span>
+        <input type="text" class="form-input" id="modal-recipe-ingredient-search" placeholder="Search ingredient..." autocomplete="off">
+        <div class="search-dropdown" id="modal-recipe-ingredient-dropdown"></div>
+        <input type="hidden" id="modal-recipe-ingredient-id">
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">Quantity per serving *</label>
@@ -144,12 +141,89 @@ function showAddRecipeForm(itemId, itemName, ingredients, container) {
     `
   });
 
+  const searchInput = document.getElementById('modal-recipe-ingredient-search');
+  const dropdown = document.getElementById('modal-recipe-ingredient-dropdown');
+  const hiddenId = document.getElementById('modal-recipe-ingredient-id');
+  const qtyInput = document.getElementById('modal-recipe-qty');
+  let highlightedIdx = -1;
+  let filtered = [];
+
+  const activeIngredients = ingredients.filter(i => i.active !== false);
+
+  function renderDropdown(items) {
+    if (items.length === 0) {
+      dropdown.innerHTML = '<div class="search-no-results">No matches found</div>';
+    } else {
+      dropdown.innerHTML = items.map((ing, i) => `
+        <div class="search-dropdown-item ${i === highlightedIdx ? 'highlighted' : ''}" data-id="${ing.id}" data-idx="${i}">
+          <span>${ing.name} <small class="text-muted">(${ing.unit})</small></span>
+        </div>
+      `).join('');
+    }
+    dropdown.classList.add('visible');
+
+    dropdown.querySelectorAll('.search-dropdown-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx);
+        selectIngredient(items[idx]);
+      });
+    });
+  }
+
+  function selectIngredient(ing) {
+    searchInput.value = ing.name;
+    hiddenId.value = ing.id;
+    dropdown.classList.remove('visible');
+    qtyInput.focus();
+  }
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.toLowerCase().trim();
+    filtered = activeIngredients.filter(i => i.name.toLowerCase().includes(q));
+    highlightedIdx = filtered.length > 0 ? 0 : -1;
+    renderDropdown(filtered);
+  });
+
+  searchInput.addEventListener('focus', () => {
+    const q = searchInput.value.toLowerCase().trim();
+    if (q === '') {
+      filtered = activeIngredients.slice(0, 50);
+    } else {
+      filtered = activeIngredients.filter(i => i.name.toLowerCase().includes(q));
+    }
+    highlightedIdx = -1;
+    renderDropdown(filtered);
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlightedIdx = Math.min(highlightedIdx + 1, filtered.length - 1);
+      renderDropdown(filtered);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlightedIdx = Math.max(highlightedIdx - 1, 0);
+      renderDropdown(filtered);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIdx >= 0 && filtered[highlightedIdx]) {
+        selectIngredient(filtered[highlightedIdx]);
+      }
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.remove('visible');
+    }
+  });
+
   document.getElementById('modal-recipe-save')?.addEventListener('click', async () => {
-    const ingredientId = parseInt(document.getElementById('modal-recipe-ingredient').value);
-    const quantity = parseFloat(document.getElementById('modal-recipe-qty').value);
+    const ingredientId = parseInt(hiddenId.value);
+    const quantity = parseFloat(qtyInput.value);
 
     if (!ingredientId || !quantity || quantity <= 0) {
-      showToast('Please fill all fields', 'error');
+      showToast('Please select an ingredient and enter a valid quantity', 'error');
       return;
     }
 
