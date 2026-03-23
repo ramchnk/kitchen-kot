@@ -87,60 +87,77 @@ export async function renderActiveOrdersView(container) {
   // Convert to bill
   container.querySelectorAll('.btn-convert-bill').forEach(btn => {
     btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      
       const id = parseInt(btn.dataset.id);
       const order = await DB.getById('orders', id);
-      if (!order) return;
+      if (!order || order.status !== 'open') {
+        showToast('Order not found or already billed', 'error');
+        renderActiveOrdersView(container);
+        return;
+      }
 
-      const now = new Date().toISOString();
-      const today = now.substring(0, 10); // YYYY-MM-DD
+      btn.disabled = true;
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<span class="material-symbols-outlined spinning" style="font-size:16px">sync</span>';
 
-      const totals = order.items.reduce((acc, item) => {
-        acc.subTotal += (item.amount || 0);
-        return acc;
-      }, { subTotal: 0 });
+      try {
+        const now = new Date().toISOString();
+        const today = now.substring(0, 10);
+        
+        const totals = order.items.reduce((acc, item) => {
+          acc.subTotal += (item.amount || 0);
+          return acc;
+        }, { subTotal: 0 });
 
-      order.status = 'billed';
-      order.billedAt = now;
-      order.date = today;
-      order.subTotal = totals.subTotal;
-      order.totalAmount = totals.subTotal; // Assuming no AC charge for now as per calculateTotals
-      await DB.update('orders', order);
+        order.status = 'billed';
+        order.subTotal = totals.subTotal;
+        order.totalAmount = totals.subTotal;
+        order.billedAt = now;
+        order.date = today;
+        await DB.update('orders', order);
 
-      // Update ingredient consumption
-      for (const orderItem of order.items) {
-        const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
-        for (const recipe of recipes) {
-          const ingredient = await DB.getById('ingredients', recipe.ingredientId);
-          if (ingredient) {
-            const consumed = recipe.quantity * orderItem.quantity;
-            ingredient.currentStock = Math.max(0, (ingredient.currentStock || 0) - consumed);
-            await DB.update('ingredients', ingredient);
+        // Update ingredient consumption
+        for (const orderItem of order.items) {
+          const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
+          for (const recipe of recipes) {
+            const ingredient = await DB.getById('ingredients', recipe.ingredientId);
+            if (ingredient) {
+              const consumed = recipe.quantity * orderItem.quantity;
+              ingredient.currentStock = Math.max(0, (ingredient.currentStock || 0) - consumed);
+              await DB.update('ingredients', ingredient);
+            }
           }
         }
+
+        // Record Wallet Transaction (excluding LIQUOR items)
+        const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
+        const nonLiquorSubtotal = order.items
+          .filter(item => !isLiquor(item))
+          .reduce((sum, item) => sum + item.amount, 0);
+
+        if (nonLiquorSubtotal > 0) {
+          const subTotal = totals.subTotal;
+          const acCharge = 0;
+          const proportionalAc = subTotal > 0 ? (nonLiquorSubtotal / subTotal) * acCharge : 0;
+          const walletAmount = nonLiquorSubtotal + proportionalAc;
+          await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
+        }
+
+        // Print bill
+        const supplier = order.supplierId ? supplierMap[order.supplierId] : '';
+        const table = order.tableId ? tableMap[order.tableId] : 'N/A';
+        const printHTML = generateBillPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
+        printContent(printHTML);
+
+        showToast(`Bill #${order.orderNumber} successfully generated!`, 'success');
+        renderActiveOrdersView(container);
+      } catch (err) {
+        console.error(err);
+        showToast('Error billing order: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
       }
-
-      // Print bill
-      const supplier = order.supplierId ? supplierMap[order.supplierId] : '';
-      const table = order.tableId ? tableMap[order.tableId] : 'N/A';
-      const printHTML = generateBillPrintHTML(order, supplier, table);
-      printContent(printHTML);
-
-      // Record Wallet Transaction (Income adds to wallet, excluding LIQUOR items only)
-      const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
-      const nonLiquorSubtotal = order.items
-        .filter(item => !isLiquor(item))
-        .reduce((sum, item) => sum + item.amount, 0);
-
-      if (nonLiquorSubtotal > 0) {
-        const subTotal = order.subTotal || order.items.reduce((sum, item) => sum + item.amount, 0);
-        const acCharge = order.acCharge || 0;
-        const proportionalAc = subTotal > 0 ? (nonLiquorSubtotal / subTotal) * acCharge : 0;
-        const walletAmount = nonLiquorSubtotal + proportionalAc;
-        await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
-      }
-
-      showToast(`Order #${order.orderNumber} billed!`, 'success');
-      renderActiveOrdersView(container);
     });
   });
 

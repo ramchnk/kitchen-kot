@@ -28,6 +28,9 @@ export async function renderReportsView(container) {
         <button class="btn btn-secondary" id="btn-print-current-report">
           <span class="material-symbols-outlined">print</span> Print
         </button>
+        <button class="btn btn-primary" id="btn-eod-report" style="background:#10b981;border-color:#10b981;box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);">
+          <span class="material-symbols-outlined">summarize</span> EOD Report
+        </button>
       </div>
     </div>
 
@@ -83,6 +86,9 @@ export async function renderReportsView(container) {
 
   // Initial generation
   generateAll();
+
+  // EOD Report handler
+  document.getElementById('btn-eod-report')?.addEventListener('click', () => showEODReport());
 
   // Global Print handler
   document.getElementById('btn-print-current-report')?.addEventListener('click', () => {
@@ -1765,4 +1771,152 @@ async function renderCustomRangeData(itemMap, supplierMap) {
       </div>
     </div>
   `;
+}
+
+/**
+ * Generates and shows the End of Day (EOD) Report popup
+ * Based on user requested design and logic
+ */
+async function showEODReport() {
+  const dateStr = document.getElementById('report-date')?.value || todayISO();
+  
+  // Show Loading Modal
+  showModal('EOD Report', `
+    <div style="padding: 40px; text-align: center;">
+      <span class="material-symbols-outlined spinning" style="font-size: 48px; color: var(--primary); margin-bottom: 16px;">sync</span>
+      <p style="font-size: 1.1rem; color: var(--text-secondary);">Calculating EOD Financial Summary for ${formatDate(dateStr)}...</p>
+    </div>
+  `);
+  
+  try {
+    const transactions = await DB.getAll('walletTransactions');
+    const openingBalance = await DB.getAccountBalance();
+
+    // Today's flows (specifically for the selected EOD date)
+    const todayTransactions = transactions.filter(t => t.date === dateStr);
+    
+    // Calculate Today Sales (Incomes)
+    const todaySales = todayTransactions.reduce((sum, t) => {
+        if (t.type === 'income') return sum + Number(t.amount);
+        if (t.type === 'adjustment-surplus') return sum - Number(t.amount);
+        return sum;
+    }, 0);
+    
+    // Calculate Today Expenses (Outflows)
+    const todayExpenses = todayTransactions.reduce((sum, t) => {
+        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + Number(t.amount);
+        return sum;
+    }, 0);
+
+    // Old flows (All transactions before the selected EOD date)
+    const oldTransactions = transactions.filter(t => t.date < dateStr);
+    const oldIncome = oldTransactions.reduce((sum, t) => {
+        if (t.type === 'income') return sum + Number(t.amount);
+        if (t.type === 'adjustment-surplus') return sum - Number(t.amount);
+        return sum;
+    }, 0);
+    const oldOutflow = oldTransactions.reduce((sum, t) => {
+        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + Number(t.amount);
+        return sum;
+    }, 0);
+
+    // Opening Balance (Account Baseline) + Net result of all previous days
+    const oldCashHand = openingBalance + oldIncome - oldOutflow;
+    const todayCashHand = todaySales - todayExpenses;
+    const totalCashHand = oldCashHand + todayCashHand;
+
+    const contentHTML = `
+      <div style="background: #1e293b; color: #f8fafc; padding: 32px; border-radius: 12px; font-family: 'Outfit', -apple-system, sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 32px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px; display: flex; align-items: center; gap: 12px; letter-spacing: -0.025em;">
+         <span class="material-symbols-outlined" style="color:#10b981; font-size: 32px;">analytics</span> Kitchen Daily Report
+        </h2>
+        
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
+            <span style="color: #94a3b8;">Today Sales Amount</span>
+            <span style="font-weight: 600; color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todaySales).replace('₹', '')}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
+            <span style="color: #94a3b8;">Today Expenses</span>
+            <span style="font-weight: 600; color: #ef4444; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 1.35rem; align-items: center; padding: 12px 0; border-top: 1px dashed rgba(255,255,255,0.1); margin-top: 4px;">
+            <span style="color: #f8fafc; font-weight: 500;">Today cash in Hand</span>
+            <span style="font-weight: 700; color: #f59e0b; font-family: 'JetBrains Mono', monospace; font-size: 1.5rem;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
+            <span style="color: #94a3b8;">Opening Balance</span>
+            <span style="font-weight: 600; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(oldCashHand).replace('₹', '')}</span>
+          </div>
+          
+          <div style="margin-top: 24px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 24px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 1.5rem; font-weight: 700; color: #10b981;">Closing Balance</span>
+            <span style="font-size: 1.8rem; font-weight: 800; color: #10b981; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);">= ${formatCurrency(totalCashHand).replace('₹', '')}</span>
+          </div>
+        </div>
+        
+        <div style="margin-top: 32px; font-size: 0.95rem; color: #64748b; text-align: center; font-style: italic;">
+          Business Summary for <strong>${formatDate(dateStr)}</strong>
+        </div>
+      </div>
+    `;
+
+    showModal('', contentHTML, {
+        hideCloseButton: true,
+        footer: `
+            <button class="btn btn-ghost" id="btn-close-eod-modal" style="color: var(--text-secondary)">Close</button>
+            <button class="btn btn-primary" id="btn-print-eod-modal" style="background:var(--primary)">
+                <span class="material-symbols-outlined">print</span> Print Report
+            </button>
+        `
+    });
+
+    // Add event listeners for modal buttons
+    document.getElementById('btn-close-eod-modal').onclick = closeModal;
+    document.getElementById('btn-print-eod-modal').onclick = () => {
+        const printHTML = `
+            <div style="font-family: monospace; width: 100%; max-width: 300px; margin: 0 auto; padding: 20px; color: #000;">
+                <h2 style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 10px;">KITCHEN DAILY REPORT</h2>
+                <div style="margin: 10px 0; text-align: center; border-bottom: 1px solid #000; padding-bottom: 5px;">DATE: ${formatDate(dateStr).toUpperCase()}</div>
+                
+                <div style="margin: 15px 0;">
+                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                        <span>Today Sales:</span>
+                        <span>${formatCurrency(todaySales)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                        <span>Today Exp.:</span>
+                        <span>${formatCurrency(todayExpenses)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 12px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 8px;">
+                        <span>Today Cash:</span>
+                        <span>${formatCurrency(todayCashHand)}</span>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; margin: 8px 0; border-top: 1px solid #000; padding-top: 8px;">
+                        <span>Opening Bal:</span>
+                        <span>${formatCurrency(oldCashHand)}</span>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; margin: 20px 0 10px 0; font-size: 1.25em; font-weight: bold; border: 2px solid #000; padding: 10px;">
+                        <span>CLOSING BAL:</span>
+                        <span>${formatCurrency(totalCashHand)}</span>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; font-size: 0.85em; margin-top: 30px; border-top: 1px solid #000; padding-top: 10px;">
+                    GENERATED ON: ${formatDateTime(new Date().toISOString())}<br>
+                    --- End of Report ---
+                </div>
+            </div>
+        `;
+        printContent(printHTML, 'thermal');
+    };
+
+  } catch (err) {
+    console.error(err);
+    showModal('Error', `<p class="text-danger" style="padding: 20px;">Failed to calculate EOD report: ${err.message}</p>`, {
+        footer: '<button class="btn btn-ghost" onclick="closeModal()">Close</button>'
+    });
+  }
 }
