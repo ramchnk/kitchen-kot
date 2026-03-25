@@ -28,6 +28,9 @@ export async function renderIngredientsView(container) {
           <span class="material-symbols-outlined">print</span> Print
         </button>
         ${Auth.isAdmin() ? `
+        <button class="btn btn-secondary" id="btn-bulk-stock-update" style="margin-right:8px; border-color:#6366f1; color:#6366f1">
+          <span class="material-symbols-outlined">inventory_2</span> Bulk Stock Update
+        </button>
         <button class="btn btn-primary" id="btn-add-ingredient">
           <span class="material-symbols-outlined">add</span> Add Ingredient
         </button>
@@ -77,6 +80,8 @@ export async function renderIngredientsView(container) {
   });
 
   document.getElementById('btn-add-ingredient')?.addEventListener('click', () => showIngForm(null, container));
+  
+  document.getElementById('btn-bulk-stock-update')?.addEventListener('click', () => showBulkStockModal(ingredients, container));
 
   document.getElementById('btn-print-stock')?.addEventListener('click', () => {
     // Only print active ingredients by default for stock taking? Or let's print all
@@ -202,5 +207,89 @@ function showIngForm(ing, container) {
 
     closeModal();
     renderIngredientsView(container);
+  });
+}
+
+function showBulkStockModal(ingredients, container) {
+  const activeIngs = ingredients.filter(i => i.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  
+  const rowsHTML = activeIngs.map((ing, i) => `
+    <tr>
+      <td class="text-muted" style="width:40px">${i + 1}</td>
+      <td style="font-weight:600">
+        ${ing.name}
+        <div class="text-muted" style="font-size:0.75rem;font-weight:400">ID: ${ing.id} | Unit: ${ing.unit}</div>
+      </td>
+      <td class="text-right font-mono" style="font-weight:600; color:var(--text-secondary)">${ing.currentStock || 0} ${ing.unit}</td>
+      <td style="width:140px">
+        <input type="number" step="0.01" min="0" 
+          class="form-input bulk-stock-input" 
+          data-id="${ing.id}" 
+          value="${ing.currentStock || 0}" 
+          style="text-align:right; font-weight:700; background:var(--bg-elevated); border:1px solid var(--border-color); color:var(--primary)">
+      </td>
+    </tr>
+  `).join('');
+
+  showModal('Bulk Stock Update', `
+    <div class="alert alert-info" style="margin-bottom:16px; font-size:0.9rem">
+      Update current stock for multiple ingredients at once. Only active ingredients are shown.
+    </div>
+    <div style="max-height:60vh; overflow-y:auto; border:1px solid var(--border-color); border-radius:8px">
+      <table class="data-table">
+        <thead style="position:sticky; top:0; z-index:10; background:var(--bg-card)">
+          <tr>
+            <th>#</th>
+            <th>Ingredient Name</th>
+            <th class="text-right">Current Stock</th>
+            <th class="text-right">New Stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHTML}
+        </tbody>
+      </table>
+    </div>
+  `, {
+    large: true,
+    footer: `
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-overlay').classList.add('hidden')">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-bulk-stock">
+        <span class="material-symbols-outlined">save</span> Update All Ingredients
+      </button>
+    `
+  });
+
+  document.getElementById('btn-save-bulk-stock')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-save-bulk-stock');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined spinning">sync</span> Updating...';
+    btn.disabled = true;
+
+    try {
+      const inputs = document.querySelectorAll('.bulk-stock-input');
+      let count = 0;
+      
+      for (const input of inputs) {
+        const id = parseInt(input.dataset.id);
+        const newVal = parseFloat(input.value) || 0;
+        const ing = activeIngs.find(i => i.id === id);
+        
+        if (ing && ing.currentStock !== newVal) {
+          ing.currentStock = newVal;
+          await DB.update('ingredients', ing);
+          count++;
+        }
+      }
+      
+      showToast(`Successfully updated ${count} ingredient(s)`, 'success');
+      closeModal();
+      renderIngredientsView(container);
+    } catch (err) {
+      console.error(err);
+      showToast('Error during bulk update: ' + err.message, 'error');
+      btn.innerHTML = originalText;
+      btn.disabled = false;
+    }
   });
 }

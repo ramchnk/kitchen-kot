@@ -945,9 +945,10 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
           <thead>
             <tr>
               <th>Ingredient</th>
-              <th class="text-right">Total Consumed</th>
+              <th class="text-right">Opening Stock</th>
+              <th class="text-right">Consumed</th>
+              <th class="text-right">Available Stock</th>
               <th>Unit</th>
-              <th class="text-right">Current Stock</th>
               <th>Breakdown</th>
             </tr>
           </thead>
@@ -955,13 +956,14 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
             ${usageList.map(ing => `
               <tr>
                 <td><strong>${ing.name}</strong></td>
-                <td class="text-right font-mono" style="color:var(--danger)">${ing.totalConsumed.toFixed(1)}</td>
-                <td>${ing.unit}</td>
-                <td class="text-right font-mono ${ing.currentStock < ing.totalConsumed ? 'text-danger' : 'text-success'}">${ing.currentStock.toFixed(1)} ${ing.unit}</td>
-                <td class="text-muted" style="font-size:0.78rem">
+                <td class="text-right font-mono" style="font-weight:600">${(ing.currentStock + ing.totalConsumed).toFixed(1)}</td>
+                <td class="text-right font-mono" style="color:var(--danger)">-${ing.totalConsumed.toFixed(1)}</td>
+                <td class="text-right font-mono ${ing.currentStock < 0 ? 'text-danger' : 'text-success'}" style="font-weight:700">${ing.currentStock.toFixed(1)}</td>
+                <td><span class="status-badge" style="background:var(--bg-elevated);color:var(--text-secondary);font-size:0.7rem">${ing.unit}</span></td>
+                <td class="text-muted" style="font-size:0.75rem; line-height:1.5; padding:8px 0">
                   ${Object.values(ing.itemBreakdown).map(b =>
-        `${b.itemName}: ${b.qtySold} × ${b.perUnit}${ing.unit} = ${b.totalUsed.toFixed(1)}${ing.unit}`
-      ).join(' | ')}
+        `<div style="margin-bottom:2px"><strong>${b.itemName}</strong>: ${b.qtySold} × ${b.perUnit}${ing.unit}</div>`
+      ).join('')}
                 </td>
               </tr>
             `).join('')}
@@ -981,16 +983,25 @@ function generateConsumptionReport(container, orders, allRecipes, ingredientMap,
         <thead>
           <tr style="border-bottom:2px solid #000">
             <th style="text-align:left; padding:8px 4px">Ingredient</th>
-            <th style="text-align:right; padding:8px 4px">Consumed</th>
+            <th style="text-align:right; padding:8px 4px">Opening</th>
+            <th style="text-align:right; padding:8px 4px">Used</th>
+            <th style="text-align:right; padding:8px 4px">Closing</th>
             <th style="text-align:left; padding:8px 4px">Unit</th>
           </tr>
         </thead>
         <tbody>
           ${usageList.map(ing => `
             <tr style="border-bottom:1px dashed #ccc">
-              <td style="padding:6px 4px">${ing.name}</td>
-              <td style="text-align:right; padding:6px 4px">${ing.totalConsumed.toFixed(2)}</td>
+              <td style="padding:6px 4px; font-weight:bold">${ing.name}</td>
+              <td style="text-align:right; padding:6px 4px">${(ing.currentStock + ing.totalConsumed).toFixed(1)}</td>
+              <td style="text-align:right; padding:6px 4px">-${ing.totalConsumed.toFixed(1)}</td>
+              <td style="text-align:right; padding:6px 4px; font-weight:bold">${ing.currentStock.toFixed(1)}</td>
               <td style="padding:6px 4px">${ing.unit}</td>
+            </tr>
+            <tr>
+              <td colspan="5" style="padding:0 4px 8px 4px; font-size:0.7rem; color:#666; border-bottom:1px dashed #ccc">
+                Breakdown: ${Object.values(ing.itemBreakdown).map(b => `${b.itemName} (${b.qtySold}×${b.perUnit}${ing.unit})`).join(' | ')}
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -1826,10 +1837,15 @@ async function showEODReport() {
     const totalCashHand = oldCashHand + todayCashHand;
 
     const contentHTML = `
-      <div style="background: #1e293b; color: #f8fafc; padding: 32px; border-radius: 12px; font-family: 'Outfit', -apple-system, sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 32px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px; display: flex; align-items: center; gap: 12px; letter-spacing: -0.025em;">
-         <span class="material-symbols-outlined" style="color:#10b981; font-size: 32px;">analytics</span> Kitchen Daily Report
-        </h2>
+      <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 32px; border-radius: 12px; font-family: 'Outfit', -apple-system, sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px;">
+          <h2 style="font-size: 1.75rem; font-weight: 700; display: flex; align-items: center; gap: 12px; letter-spacing: -0.025em; margin: 0;">
+            <span class="material-symbols-outlined" style="color:#10b981; font-size: 32px;">analytics</span> Kitchen Daily Report
+          </h2>
+          <button id="btn-export-eod-image" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); color: #818cf8; border-radius: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;" title="Export as Image">
+            <span class="material-symbols-outlined">image</span>
+          </button>
+        </div>
         
         <div style="display: flex; flex-direction: column; gap: 20px;">
           <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
@@ -1855,7 +1871,7 @@ async function showEODReport() {
           </div>
         </div>
         
-        <div style="margin-top: 32px; font-size: 0.95rem; color: #64748b; text-align: center; font-style: italic;">
+        <div id="eod-summary-text" style="margin-top: 32px; font-size: 1.25rem; color: #cbd5e1; text-align: center; font-style: italic; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px;">
           Business Summary for <strong>${formatDate(dateStr)}</strong>
         </div>
       </div>
@@ -1873,6 +1889,41 @@ async function showEODReport() {
 
     // Add event listeners for modal buttons
     document.getElementById('btn-close-eod-modal').onclick = closeModal;
+
+    document.getElementById('btn-export-eod-image').onclick = async () => {
+        const btn = document.getElementById('btn-export-eod-image');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span class="material-symbols-outlined spinning">sync</span>';
+        btn.disabled = true;
+
+        try {
+            // Find the report card element
+            const element = document.getElementById('eod-report-card');
+            
+            // Generate canvas
+            const canvas = await html2canvas(element, {
+                backgroundColor: '#1e293b', // Match the background in contentHTML
+                scale: 2, // Better quality
+                logging: false,
+                useCORS: true
+            });
+
+            // Trigger download
+            const link = document.createElement('a');
+            link.download = `EOD_Report_${dateStr}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            
+            showToast('EOD Report exported as image', 'success');
+        } catch (err) {
+            console.error('Export failed:', err);
+            showToast('Failed to export image: ' + err.message, 'error');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    };
+
     document.getElementById('btn-print-eod-modal').onclick = () => {
         const printHTML = `
             <div style="font-family: monospace; width: 100%; max-width: 300px; margin: 0 auto; padding: 20px; color: #000;">

@@ -117,15 +117,24 @@ export async function renderActiveOrdersView(container) {
         order.date = today;
         await DB.update('orders', order);
 
-        // Update ingredient consumption
+        // Update ingredient/product consumption
+        const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS'];
         for (const orderItem of order.items) {
-          const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
-          for (const recipe of recipes) {
-            const ingredient = await DB.getById('ingredients', recipe.ingredientId);
-            if (ingredient) {
-              const consumed = recipe.quantity * orderItem.quantity;
-              ingredient.currentStock = Math.max(0, (ingredient.currentStock || 0) - consumed);
-              await DB.update('ingredients', ingredient);
+          const item = await DB.getById('items', orderItem.itemId);
+          if (item && DIRECT_PURCHASE_CATEGORIES.includes((item.category || '').toUpperCase())) {
+            // Deduct product stock directly
+            item.currentStock = Math.max(0, (item.currentStock || 0) - orderItem.quantity);
+            await DB.update('items', item);
+          } else {
+            // Deduct ingredient stock via recipes
+            const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
+            for (const recipe of recipes) {
+              const ingredient = await DB.getById('ingredients', recipe.ingredientId);
+              if (ingredient) {
+                const consumed = recipe.quantity * orderItem.quantity;
+                ingredient.currentStock = Math.max(0, (ingredient.currentStock || 0) - consumed);
+                await DB.update('ingredients', ingredient);
+              }
             }
           }
         }
