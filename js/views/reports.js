@@ -1293,6 +1293,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       </button>
     </div>
 
+
     ${Object.entries(categories).map(([cat, items]) => `
       <div class="card mb-2">
         <div class="card-header">
@@ -1369,99 +1370,168 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
   });
 
   // Save Closing Stock button
-  document.getElementById('btn-save-closing-stock')?.addEventListener('click', async () => {
+  // Save Closing Stock button - Now with date confirmation
+  document.getElementById('btn-save-closing-stock')?.addEventListener('click', () => {
+    const reportDateInput = document.getElementById('report-date')?.value || todayISO();
+    
+    showModal('Confirm Closing Stock Save', `
+      <div style="padding:10px 0">
+        <div class="alert alert-info" style="margin-bottom:16px; font-size:0.9rem">
+          You are about to save the actual closing stock values. This will generate stock adjustments and update the sales report.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Save for Date:</label>
+          <input type="date" class="form-input" id="confirm-save-date" value="${reportDateInput}">
+          <p class="text-muted" style="font-size:0.8rem; margin-top:8px">
+            <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle">info</span>
+            If you are updating **yesterday's** stock (e.g., after midnight), make sure to select yesterday's date above.
+          </p>
+        </div>
+        <div class="form-check" style="margin-top:16px">
+          <input type="checkbox" id="update-master-stock" checked>
+          <label for="update-master-stock" style="font-weight:600">Update Current Master Stock? (Recommended)</label>
+          <p class="text-muted" style="font-size:0.75rem; margin-top:4px">
+            This will update the master "Ingredient/Item" stock count to match these actual values. Only uncheck if you've already had sales after the date being saved.
+          </p>
+        </div>
+      </div>
+    `, {
+      footer: `
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="btn-final-save-closing-stock">
+          <span class="material-symbols-outlined">save</span> Confirm & Save
+        </button>
+      `
+    });
+
+    document.getElementById('btn-final-save-closing-stock').onclick = async () => {
+      const finalDateStr = document.getElementById('confirm-save-date').value;
+      const shouldUpdateMaster = document.getElementById('update-master-stock').checked;
+      closeModal();
+      await executeSaveClosingStock(finalDateStr, productData, shouldUpdateMaster);
+    };
+  });
+
+  async function executeSaveClosingStock(dateStr, pData, shouldUpdateMaster = true) {
     const inputs = tab.querySelectorAll('.closing-stock-input');
     let updatedCount = 0;
     let adjustmentCount = 0;
 
-    // First, delete any existing adjustments for this date to avoid duplicates
-    const existingAdjustments = await DB.getAll('stockAdjustments');
-    for (const adj of existingAdjustments.filter(a => a.date === dateStr)) {
-      await DB.remove('stockAdjustments', adj.id);
+    const btn = document.getElementById('btn-save-closing-stock');
+    const originalContent = btn?.innerHTML;
+    if (btn) {
+       btn.disabled = true;
+       btn.innerHTML = '<span class="material-symbols-outlined spinning">sync</span> Saving...';
     }
 
-    // Delete any existing wallet transactions for this date's stock adjustments
-    // to prevent duplicate entries when user clicks Save multiple times
-    const allWalletTxns = await DB.getAll('walletTransactions');
-    const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
-    const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
-    const existingStockWalletTxns = allWalletTxns.filter(t => 
-      t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId
-    );
-    for (const txn of existingStockWalletTxns) {
-      await DB.remove('walletTransactions', txn.id);
-    }
-    // If we deleted old wallet transactions, recalculate the wallet totals
-    if (existingStockWalletTxns.length > 0) {
-      await DB.recalculateWalletTotals();
-    }
-
-    let totalAdjIncome = 0;
-    let totalAdjSurplus = 0;
-    let adjProducts = [];
-    let surpProducts = [];
-
-    for (const input of inputs) {
-      const productId = parseInt(input.dataset.productId);
-      const actualClosing = parseInt(input.value) || 0;
-
-      const prodData = productData.find(p => p.id === productId);
-      const product = await DB.getById('items', productId);
-      if (!product || !prodData) continue;
-
-      product.currentStock = actualClosing;
-      await DB.update('items', product);
-      updatedCount++;
-
-      const adjustedQty = prodData.expectedClosing - actualClosing;
-      const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
-
-      await DB.add('stockAdjustments', {
-        productId: productId,
-        productName: product.name,
-        category: product.category,
-        date: dateStr,
-        openingStock: prodData.openingStock,
-        expectedClosing: prodData.expectedClosing,
-        actualClosing: actualClosing,
-        adjustedQty: adjustedQty,
-        adjustedAmount: adjustedAmount,
-        sellingPrice: product.sellingPrice || 0,
-        createdAt: new Date().toISOString(),
-      });
-
-      if (adjustedQty > 0) {
-        totalAdjIncome += adjustedAmount;
-        adjProducts.push(product.name);
-        adjustmentCount++;
-      } else if (adjustedQty < 0) {
-        totalAdjSurplus += Math.abs(adjustedAmount);
-        surpProducts.push(product.name);
-        adjustmentCount++;
+    try {
+      // First, delete any existing adjustments for this date to avoid duplicates
+      const existingAdjustments = await DB.getAll('stockAdjustments');
+      for (const adj of existingAdjustments.filter(a => a.date === dateStr)) {
+        await DB.remove('stockAdjustments', adj.id);
       }
-    }
 
-    // Record Consolidated Wallet Transactions
-    if (totalAdjIncome > 0) {
-      const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
-      await DB.recordWalletTransaction('income', totalAdjIncome, desc, `STOCK-ADJ-${dateStr}`);
-    }
-    if (totalAdjSurplus > 0) {
-      const desc = `EOD Stock Surplus: ${surpProducts.join(', ')}`;
-      await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`);
-    }
+      // Delete any existing wallet transactions for this date's stock adjustments
+      const allWalletTxns = await DB.getAll('walletTransactions');
+      const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
+      const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
+      const existingStockWalletTxns = allWalletTxns.filter(t => 
+        t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId
+      );
+      for (const txn of existingStockWalletTxns) {
+        await DB.remove('walletTransactions', txn.id);
+      }
+      
+      if (existingStockWalletTxns.length > 0) {
+        await DB.recalculateWalletTotals();
+      }
 
-    const msg = adjustmentCount > 0
-      ? `Stock updated for ${updatedCount} product(s) with ${adjustmentCount} adjustment(s). Sales Report updated!`
-      : `Stock updated for ${updatedCount} product(s). No adjustments needed.`;
-    showToast(msg, 'success');
+      let totalAdjIncome = 0;
+      let totalAdjSurplus = 0;
+      let adjProducts = [];
+      let surpProducts = [];
 
-    // Refresh the report to reflect updated stock and adjustments in Sales Report
-    const reportDate = document.getElementById('report-date');
-    if (reportDate) {
-      document.getElementById('btn-generate-report')?.click();
+      for (const input of inputs) {
+        const productId = parseInt(input.dataset.productId);
+        const actualClosing = parseInt(input.value) || 0;
+
+        const prodRecord = pData.find(p => p.id === productId);
+        const product = await DB.getById('items', productId);
+        if (!product || !prodRecord) continue;
+
+        // If should update master, update the inventory count
+        if (shouldUpdateMaster) {
+          product.currentStock = actualClosing;
+          await DB.update('items', product);
+          updatedCount++;
+        }
+
+        const adjustedQty = prodRecord.expectedClosing - actualClosing;
+        const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
+
+        await DB.add('stockAdjustments', {
+          productId: productId,
+          productName: product.name,
+          category: product.category,
+          date: dateStr,
+          openingStock: prodRecord.openingStock,
+          expectedClosing: prodRecord.expectedClosing,
+          actualClosing: actualClosing,
+          adjustedQty: adjustedQty,
+          adjustedAmount: adjustedAmount,
+          sellingPrice: product.sellingPrice || 0,
+          createdAt: new Date().toISOString(),
+        });
+
+        if (adjustedQty > 0) {
+          totalAdjIncome += adjustedAmount;
+          adjProducts.push(product.name);
+          adjustmentCount++;
+        } else if (adjustedQty < 0) {
+          totalAdjSurplus += Math.abs(adjustedAmount);
+          surpProducts.push(product.name);
+          adjustmentCount++;
+        }
+      }
+
+      // Record Consolidated Wallet Transactions
+      if (totalAdjIncome > 0) {
+        const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
+        await DB.recordWalletTransaction('income', totalAdjIncome, desc, `STOCK-ADJ-${dateStr}`, dateStr);
+      }
+      if (totalAdjSurplus > 0) {
+        const desc = `EOD Stock Surplus: ${surpProducts.join(', ')}`;
+        await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`, dateStr);
+      }
+
+      const msg = adjustmentCount > 0
+        ? `Stock for ${formatDate(dateStr)} saved with ${adjustmentCount} adjustment(s). Sales Report updated!`
+        : `Stock updated for ${updatedCount} product(s). No adjustments needed.`;
+      showToast(msg, 'success');
+
+      // Refresh the report to reflect updated stock and adjustments in Sales Report
+      const reportDate = document.getElementById('report-date');
+      if (reportDate) {
+        if (reportDate.value !== dateStr) {
+           reportDate.value = dateStr;
+        }
+        document.getElementById('btn-generate-report')?.click();
+      }
+    } catch (err) {
+       console.error(err);
+       showToast('Error saving stock: ' + err.message, 'error');
+    } finally {
+       if (btn) {
+         btn.disabled = false;
+         btn.innerHTML = originalContent || '<span class="material-symbols-outlined">save</span> Save Closing Stock';
+       }
     }
-  });
+  }
+
+
+
+
+
 
   // Print Product Stock Report
   document.getElementById('btn-print-product-stock')?.addEventListener('click', () => {

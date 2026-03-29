@@ -369,8 +369,51 @@ async function init() {
             // Navigate to initial route
             navigate(getViewFromHash());
 
+            // ---- TEMPORARY MIGRATION: 29 Mar to 28 Mar ----
+            // Moving user-requested stock data from Mar 29 (accidental date) to Mar 28.
+            const MIGRATION_KEY = 'migration_29_to_28_v2';
+            if (localStorage.getItem(MIGRATION_KEY) !== 'done' && Auth.getUserRole() === 'admin') {
+                (async () => {
+                    try {
+                        const sourceDate = '2026-03-29';
+                        const targetDate = '2026-03-28';
+                        const existingAdjustments = await DB.getAll('stockAdjustments');
+                        const toMoveAdj = existingAdjustments.filter(a => a.date === sourceDate);
+                        
+                        if (toMoveAdj.length > 0) {
+                            console.log(`Running migration: Moving ${toMoveAdj.length} adjustments to ${targetDate}`);
+                            for (const adj of toMoveAdj) {
+                                adj.date = targetDate;
+                                await DB.update('stockAdjustments', adj);
+                            }
+                            
+                            const transactions = await DB.getAll('walletTransactions');
+                            const oldAdjSourceId = `STOCK-ADJ-${sourceDate}`;
+                            const oldSurpSourceId = `STOCK-SURP-${sourceDate}`;
+                            const newAdjSourceId = `STOCK-ADJ-${targetDate}`;
+                            const newSurpSourceId = `STOCK-SURP-${targetDate}`;
+                            
+                            const toMoveTxn = transactions.filter(t => t.sourceId === oldAdjSourceId || t.sourceId === oldSurpSourceId);
+                            for (const txn of toMoveTxn) {
+                                txn.date = targetDate;
+                                txn.sourceId = txn.sourceId === oldAdjSourceId ? newAdjSourceId : newSurpSourceId;
+                                txn.description = (txn.description || '').replace(sourceDate, targetDate);
+                                await DB.update('walletTransactions', txn);
+                            }
+                            
+                            await DB.recalculateWalletTotals();
+                            showToast(`Migration complete: Moved ${toMoveAdj.length} entries to Mar 28.`, 'success', 5000);
+                        }
+                        localStorage.setItem(MIGRATION_KEY, 'done');
+                    } catch (err) {
+                        console.error('Migration failed:', err);
+                    }
+                })();
+            }
+
             // Initial sales update
             updateSidebarSales();
+
         } else {
             // User is logged out — show auth page
             showAuthPage();
