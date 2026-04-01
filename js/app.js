@@ -6,6 +6,7 @@ import { initThemeSystem } from './themes.js';
 import { showToast, formatCurrency, todayISO, closeModal } from './utils.js';
 
 window.closeModal = closeModal;
+window.DB = DB;
 import { renderOrderView, destroyOrderView } from './views/order.js';
 import { renderActiveOrdersView } from './views/activeOrders.js';
 import { renderItemsView } from './views/items.js';
@@ -169,32 +170,39 @@ async function updateSidebarSales() {
         // HYBRID FALLBACK: Include orders where 'date' field is missing but 'billedAt' matches today.
         // This ensures sidebar sales match the Reports view.
         const allBilled = await DB.getByIndex('orders', 'status', 'billed');
-        const missingDateOrders = allBilled.filter(o => 
+        const missingDateOrders = allBilled.filter(o =>
             !o.date && o.billedAt && o.billedAt.startsWith(today)
         );
-        
+
         if (missingDateOrders.length > 0) {
             todayOrders = [...todayOrders, ...missingDateOrders];
         }
 
         let liquorTotal = 0;
+        let counterTotal = 0;
         let kitchenTotal = 0;
+
+        const COUNTER_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS', 'COOLDRINK'];
 
         todayOrders.forEach(order => {
             (order.items || []).forEach(item => {
                 const category = (item.category || '').toUpperCase().trim();
                 const isLiquor = category === 'LIQUOR' || item.isLiquor;
-                
+                const isCounter = COUNTER_CATEGORIES.includes(category);
+
                 if (isLiquor) {
                     liquorTotal += (item.amount || 0);
+                } else if (isCounter) {
+                    counterTotal += (item.amount || 0);
                 } else {
                     kitchenTotal += (item.amount || 0);
                 }
             });
         });
 
-        liquorEl.textContent = formatCurrency(liquorTotal);
-        kitchenEl.textContent = formatCurrency(kitchenTotal);
+        // We could add a counterTotal UI element here too if needed, but for now let's just fix kitchenTotal accuracy
+        if (liquorEl) liquorEl.textContent = formatCurrency(liquorTotal);
+        if (kitchenEl) kitchenEl.textContent = formatCurrency(kitchenTotal);
     } catch (err) {
         console.error('Error updating sidebar sales:', err);
     }
@@ -379,20 +387,20 @@ async function init() {
                         const targetDate = '2026-03-28';
                         const existingAdjustments = await DB.getAll('stockAdjustments');
                         const toMoveAdj = existingAdjustments.filter(a => a.date === sourceDate);
-                        
+
                         if (toMoveAdj.length > 0) {
                             console.log(`Running migration: Moving ${toMoveAdj.length} adjustments to ${targetDate}`);
                             for (const adj of toMoveAdj) {
                                 adj.date = targetDate;
                                 await DB.update('stockAdjustments', adj);
                             }
-                            
+
                             const transactions = await DB.getAll('walletTransactions');
                             const oldAdjSourceId = `STOCK-ADJ-${sourceDate}`;
                             const oldSurpSourceId = `STOCK-SURP-${sourceDate}`;
                             const newAdjSourceId = `STOCK-ADJ-${targetDate}`;
                             const newSurpSourceId = `STOCK-SURP-${targetDate}`;
-                            
+
                             const toMoveTxn = transactions.filter(t => t.sourceId === oldAdjSourceId || t.sourceId === oldSurpSourceId);
                             for (const txn of toMoveTxn) {
                                 txn.date = targetDate;
@@ -400,7 +408,7 @@ async function init() {
                                 txn.description = (txn.description || '').replace(sourceDate, targetDate);
                                 await DB.update('walletTransactions', txn);
                             }
-                            
+
                             await DB.recalculateWalletTotals();
                             showToast(`Migration complete: Moved ${toMoveAdj.length} entries to Mar 28.`, 'success', 5000);
                         }

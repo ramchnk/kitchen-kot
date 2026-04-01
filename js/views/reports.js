@@ -233,18 +233,26 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const sortedItems = Object.values(itemSales).sort((a, b) => b.amount - a.amount);
   const rawTotalQty = sortedItems.reduce((s, i) => s + i.quantity, 0);
 
-  // Extract Liquor or products with isLiquor flag to exclude them from the reports
-  const liquorItems = sortedItems.filter(i => (i.category || '').toUpperCase().trim() === 'LIQUOR' || i.isLiquor);
-  const otherItems = sortedItems.filter(i => !((i.category || '').toUpperCase().trim() === 'LIQUOR' || i.isLiquor));
+  // Extract and categorize items
+  const isLiquor = (i) => (i.category || '').toUpperCase().trim() === 'LIQUOR' || i.isLiquor;
+  const isCounter = (i) => ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS', 'COOLDRINK'].includes((i.category || '').toUpperCase().trim());
+
+  const liquorItems = sortedItems.filter(i => isLiquor(i));
+  const counterBilledItems = sortedItems.filter(i => !isLiquor(i) && isCounter(i));
+  const foodItems = sortedItems.filter(i => !isLiquor(i) && !isCounter(i));
 
   const liquorQty = liquorItems.reduce((s, i) => s + i.quantity, 0);
   const liquorAmount = liquorItems.reduce((s, i) => s + i.amount, 0);
-  const otherQty = otherItems.reduce((s, i) => s + i.quantity, 0);
-  const otherAmount = otherItems.reduce((s, i) => s + i.amount, 0);
+  
+  const counterBilledQty = counterBilledItems.reduce((s, i) => s + i.quantity, 0);
+  const counterBilledAmount = counterBilledItems.reduce((s, i) => s + i.amount, 0);
 
-  // Exclude Liquor from metrics
-  const totalQty = rawTotalQty - liquorQty;
-  const totalAmount = rawTotalAmount - liquorAmount;
+  const foodQty = foodItems.reduce((s, i) => s + i.quantity, 0);
+  const foodAmount = foodItems.reduce((s, i) => s + i.amount, 0);
+
+  // Totals for reconciliation
+  const billTotalQty = foodQty + counterBilledQty;
+  const billTotalAmount = foodAmount + counterBilledAmount;
 
   // Stock Adjustment (Counter/Unbilled Sales)
   const adjustmentItems = dayAdjustments
@@ -271,8 +279,12 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
   const negativeAdjustmentAmount = negativeAdjustmentItems.reduce((s, i) => s + i.amount, 0);
 
   // Grand totals including adjustments
-  const grandTotalQty = totalQty + adjustmentQty + negativeAdjustmentQty;
-  const grandTotalAmount = totalAmount + adjustmentAmount + negativeAdjustmentAmount;
+  const grandTotalQty = billTotalQty + adjustmentQty + negativeAdjustmentQty;
+  const grandTotalAmount = billTotalAmount + adjustmentAmount + negativeAdjustmentAmount;
+
+  // Final categorized totals for display
+  const finalFoodTotal = foodAmount; // No adjustments for food usually
+  const finalCounterTotal = counterBilledAmount + adjustmentAmount + negativeAdjustmentAmount;
 
   // Helper to build a section table
   const buildSectionTable = (title, icon, items, sectionQty, sectionAmount, extraStyle = '') => {
@@ -346,39 +358,33 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon purple"><span class="material-symbols-outlined">receipt_long</span></div>
-        <div><div class="stat-value">${formatCurrency(rawTotalAmount)}</div><div class="stat-label">Total Billed Sale</div></div>
+        <div class="stat-icon purple"><span class="material-symbols-outlined">restaurant</span></div>
+        <div><div class="stat-value">${formatCurrency(foodAmount)}</div><div class="stat-label">Food Sale (Billed)</div></div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon blue"><span class="material-symbols-outlined">receipt</span></div>
-        <div><div class="stat-value">${totalBills}</div><div class="stat-label">Total Bills</div></div>
+        <div class="stat-icon blue"><span class="material-symbols-outlined">countertops</span></div>
+        <div><div class="stat-value">${formatCurrency(finalCounterTotal)}</div><div class="stat-label">Counter Sale (Billed + Adj)</div></div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon green"><span class="material-symbols-outlined">currency_rupee</span></div>
-        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Kitchen Sales (Excl. Liquor) ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? '(Adjusted)' : ''}</div></div>
+        <div class="stat-icon green"><span class="material-symbols-outlined">payments</span></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Revenue (Excl. Liquor)</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>
-        <div><div class="stat-value">${grandTotalQty}</div><div class="stat-label">Items Sold</div></div>
+        <div><div class="stat-value">${grandTotalQty}</div><div class="stat-label">Total Items Gone</div></div>
       </div>
-      ${(adjustmentAmount > 0 || negativeAdjustmentAmount < 0) ? `
       <div class="stat-card">
-        <div class="stat-icon" style="background:#f59e0b20;color:#d97706"><span class="material-symbols-outlined">swap_horiz</span></div>
-        <div><div class="stat-value">${formatCurrency(adjustmentAmount + negativeAdjustmentAmount)}</div><div class="stat-label">Net Counter Margin</div></div>
+        <div class="stat-icon purple"><span class="material-symbols-outlined">receipt_long</span></div>
+        <div><div class="stat-value">${totalBills}</div><div class="stat-label">Total Bills</div></div>
       </div>
-      ` : `
-      <div class="stat-card">
-        <div class="stat-icon purple"><span class="material-symbols-outlined">avg_pace</span></div>
-        <div><div class="stat-value">${totalBills > 0 ? formatCurrency(totalAmount / totalBills) : '₹0'}</div><div class="stat-label">Avg Bill Value</div></div>
-      </div>
-      `}
     </div>
 
-    ${otherItems.length === 0 && adjustmentItems.length === 0 && negativeAdjustmentItems.length === 0 ?
+    ${foodItems.length === 0 && counterBilledItems.length === 0 && adjustmentItems.length === 0 && negativeAdjustmentItems.length === 0 ?
       '<div class="card"><div class="empty-state" style="padding:40px"><span class="material-symbols-outlined">point_of_sale</span><p>No sales for this date</p></div></div>' :
       `
-        ${buildSectionTable('Item Sales', '🍽️', otherItems, otherQty, otherAmount)}
-        ${buildSectionTable('Counter Sales (Unbilled)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
+        ${buildSectionTable('Food Item Sales', '🍽️', foodItems, foodQty, foodAmount)}
+        ${buildSectionTable('Counter Billed Sales', '🥤', counterBilledItems, counterBilledQty, counterBilledAmount, 'style="border-left:3px solid var(--blue)"')}
+        ${buildSectionTable('Counter Sales (Unbilled Adjustment)', '🏪', adjustmentItems, adjustmentQty, adjustmentAmount,
           'style="border-left:3px solid #d97706"')}
         ${buildSectionTable('Stock Surplus (Overstock)', '📉', negativeAdjustmentItems, negativeAdjustmentQty, negativeAdjustmentAmount,
           'style="border-left:3px solid var(--danger)"')}
@@ -387,13 +393,18 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
           <table class="data-table">
             <tfoot>
               <tr style="font-weight:600;font-size:0.9rem;color:var(--text-secondary)">
-                <td class="text-right" style="padding:12px 16px">Billed Sales</td>
-                <td class="text-right font-mono" style="padding:12px 16px">${totalQty}</td>
-                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(totalAmount)}</td>
+                <td class="text-right" style="padding:12px 16px">Food Sales (Billed)</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${foodQty}</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(foodAmount)}</td>
+              </tr>
+              <tr style="font-weight:600;font-size:0.9rem;color:var(--text-secondary)">
+                <td class="text-right" style="padding:12px 16px">Counter Sales (Billed)</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${counterBilledQty}</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(counterBilledAmount)}</td>
               </tr>
               ${adjustmentAmount > 0 ? `
               <tr style="font-weight:600;font-size:0.9rem;color:#d97706">
-                <td class="text-right" style="padding:12px 16px">+ Counter Sales (Unbilled)</td>
+                <td class="text-right" style="padding:12px 16px">+ Counter Sales (Unbilled Adjustment)</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${adjustmentQty}</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(adjustmentAmount)}</td>
               </tr>
@@ -487,7 +498,8 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       </div>
       <div class="print-meta">
         <div><span>Date:</span><span>${formatDate(dateStr)}</span></div>
-        <div><span>Total Billed Sales:</span><span>${formatCurrency(rawTotalAmount)}</span></div>
+        <div><span>Food Sales (Billed):</span><span>${formatCurrency(foodAmount)}</span></div>
+        <div><span>Counter Sales (Billed):</span><span>${formatCurrency(counterBilledAmount)}</span></div>
         ${adjustmentAmount > 0 ? `<div><span>Counter Sales (Unbilled):</span><span>${formatCurrency(adjustmentAmount)}</span></div>` : ''}
         <div><span>Total Revenue:</span><span>${formatCurrency(grandTotalAmount)}</span></div>
       </div>
@@ -501,16 +513,30 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
           </tr>
         </thead>
         <tbody>
-          ${otherItems.map(item => `
-            <tr style="border-bottom:1px dashed #ccc">
-              <td style="padding:6px 4px">${item.name}</td>
-              <td style="padding:6px 4px">${item.category}</td>
-              <td style="text-align:right; padding:6px 4px">${item.quantity}</td>
-              <td style="text-align:right; padding:6px 4px">${formatCurrency(item.amount)}</td>
-            </tr>
-          `).join('')}
+          ${foodItems.length > 0 ? `
+            <tr style="background:#f0f0f0"><td colspan="4" style="padding:8px 4px; font-weight:bold; border-top:1px solid #000">Food Item Sales</td></tr>
+            ${foodItems.map(item => `
+              <tr style="border-bottom:1px dashed #ccc">
+                <td style="padding:6px 4px">${item.name}</td>
+                <td style="padding:6px 4px">${item.category}</td>
+                <td style="text-align:right; padding:6px 4px">${item.quantity}</td>
+                <td style="text-align:right; padding:6px 4px">${formatCurrency(item.amount)}</td>
+              </tr>
+            `).join('')}
+          ` : ''}
+          ${counterBilledItems.length > 0 ? `
+            <tr style="background:#f0f0f0"><td colspan="4" style="padding:8px 4px; font-weight:bold; border-top:1px solid #000">Counter Billed Sales</td></tr>
+            ${counterBilledItems.map(item => `
+              <tr style="border-bottom:1px dashed #ccc">
+                <td style="padding:6px 4px">${item.name}</td>
+                <td style="padding:6px 4px">${item.category}</td>
+                <td style="text-align:right; padding:6px 4px">${item.quantity}</td>
+                <td style="text-align:right; padding:6px 4px">${formatCurrency(item.amount)}</td>
+              </tr>
+            `).join('')}
+          ` : ''}
           ${adjustmentItems.length > 0 ? `
-            <tr style="background:#f9f9f9"><td colspan="4" style="padding:8px 4px; font-weight:bold; border-top:2px solid #000">Counter Sales (Unbilled)</td></tr>
+            <tr style="background:#f9f9f9"><td colspan="4" style="padding:8px 4px; font-weight:bold; border-top:1px solid #000">Counter Sales (Unbilled Adjustment)</td></tr>
             ${adjustmentItems.map(item => `
               <tr style="border-bottom:1px dashed #ccc">
                 <td style="padding:6px 4px">${item.name}</td>
@@ -1291,6 +1317,9 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       <button class="btn btn-primary" id="btn-save-closing-stock">
         <span class="material-symbols-outlined">save</span> Save Closing Stock
       </button>
+      <button class="btn btn-secondary" id="btn-restore-30-mar" style="background:#ef4444; color:white; border-color:#ef4444">
+        <span class="material-symbols-outlined">history</span> Emergency Restore (30 Mar)
+      </button>
     </div>
 
 
@@ -1412,6 +1441,39 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     };
   });
 
+  // Emergency Restore Handler (30 Mar)
+  document.getElementById('btn-restore-30-mar')?.addEventListener('click', () => {
+    if (!confirm("This will restore the actual stock values for March 30th based on your last successful data entry. Continue?")) return;
+    
+    // Restoration Map (IDs from screenshots/Item Master)
+    const restoreData = [
+      { id: 152, actual: 65, name: 'Gold Filter Cig' },
+      { id: 153, actual: 83, name: 'Kings Cig' },
+      { id: 154, actual: 30, name: 'Scissors Cig' },
+      { id: 155, actual: 30, name: 'Indie Mint Cig' },
+      { id: 156, actual: 36, name: 'Wave Cig' },
+      { id: 171, adj: 3, name: 'Bisleri Water 500ml' },
+      { id: 172, adj: 20, name: 'Bisleri Water 1Lit' },
+      { id: 20, adj: 17, name: '7up 200ml' }
+    ];
+
+    const finalRestoreData = productData.map(p => {
+        const r = restoreData.find(rd => rd.id === p.id);
+        if (r) {
+            const actual = r.adj !== undefined ? (p.expectedClosing - r.adj) : r.actual;
+            return { ...p, actualClosing: actual };
+        }
+        return null;
+    }).filter(p => p !== null);
+
+    if (finalRestoreData.length === 0) {
+        showToast("No matching products found in the current view to restore.", "error");
+        return;
+    }
+
+    executeSaveClosingStock('2026-03-30', finalRestoreData, true);
+  });
+
   async function executeSaveClosingStock(dateStr, pData, shouldUpdateMaster = true) {
     const inputs = tab.querySelectorAll('.closing-stock-input');
     let updatedCount = 0;
@@ -1425,41 +1487,23 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     }
 
     try {
-      // First, delete any existing adjustments for this date to avoid duplicates
-      const existingAdjustments = await DB.getAll('stockAdjustments');
-      for (const adj of existingAdjustments.filter(a => a.date === dateStr)) {
-        await DB.remove('stockAdjustments', adj.id);
-      }
-
-      // Delete any existing wallet transactions for this date's stock adjustments
-      const allWalletTxns = await DB.getAll('walletTransactions');
-      const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
-      const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
-      const existingStockWalletTxns = allWalletTxns.filter(t => 
-        t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId
-      );
-      for (const txn of existingStockWalletTxns) {
-        await DB.remove('walletTransactions', txn.id);
-      }
-      
-      if (existingStockWalletTxns.length > 0) {
-        await DB.recalculateWalletTotals();
-      }
-
+      // Improved logic: Process all adjustments first, then update wallet ONCE to avoid inconsistencies
       let totalAdjIncome = 0;
       let totalAdjSurplus = 0;
       let adjProducts = [];
       let surpProducts = [];
+      
+      const newAdjustments = [];
 
-      for (const input of inputs) {
-        const productId = parseInt(input.dataset.productId);
-        const actualClosing = parseInt(input.value) || 0;
+      for (const prodRecord of pData) {
+        const productId = prodRecord.id;
+        const inputElement = tab.querySelector(`.closing-stock-input[data-product-id="${productId}"]`);
+        const actualClosing = (prodRecord.actualClosing !== undefined) ? prodRecord.actualClosing : (parseInt(inputElement?.value) || 0);
 
-        const prodRecord = pData.find(p => p.id === productId);
         const product = await DB.getById('items', productId);
-        if (!product || !prodRecord) continue;
+        if (!product) continue;
 
-        // If should update master, update the inventory count
+        // 1. Update Inventory count if requested
         if (shouldUpdateMaster) {
           product.currentStock = actualClosing;
           await DB.update('items', product);
@@ -1469,12 +1513,12 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         const adjustedQty = prodRecord.expectedClosing - actualClosing;
         const adjustedAmount = adjustedQty * (product.sellingPrice || 0);
 
-        await DB.add('stockAdjustments', {
+        newAdjustments.push({
           productId: productId,
           productName: product.name,
           category: product.category,
           date: dateStr,
-          openingStock: prodRecord.openingStock,
+          openingStock: prodRecord.openingStock || 0,
           expectedClosing: prodRecord.expectedClosing,
           actualClosing: actualClosing,
           adjustedQty: adjustedQty,
@@ -1494,6 +1538,28 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         }
       }
 
+      // ONLY AFTER preparing all data, we perform the writes
+      
+      // Delete old adjustments for this date
+      const existingAdjustments = await DB.getAll('stockAdjustments');
+      for (const adj of existingAdjustments.filter(a => a.date === dateStr)) {
+        await DB.remove('stockAdjustments', adj.id);
+      }
+
+      // Delete old wallet transactions for this date
+      const allWalletTxns = await DB.getAll('walletTransactions');
+      const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
+      const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
+      const txnsToDelete = allWalletTxns.filter(t => t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId);
+      for (const txn of txnsToDelete) {
+        await DB.remove('walletTransactions', txn.id);
+      }
+
+      // Add new adjustments
+      for (const adj of newAdjustments) {
+        await DB.add('stockAdjustments', adj);
+      }
+
       // Record Consolidated Wallet Transactions
       if (totalAdjIncome > 0) {
         const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
@@ -1504,9 +1570,13 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`, dateStr);
       }
 
+      if (txnsToDelete.length > 0 || totalAdjIncome > 0 || totalAdjSurplus > 0) {
+          await DB.recalculateWalletTotals();
+      }
+
       const msg = adjustmentCount > 0
-        ? `Stock for ${formatDate(dateStr)} saved with ${adjustmentCount} adjustment(s). Sales Report updated!`
-        : `Stock updated for ${updatedCount} product(s). No adjustments needed.`;
+        ? `Stock for ${formatDate(dateStr)} saved with ${adjustmentCount} adjustment(s).`
+        : `Stock updated for ${updatedCount} product(s).`;
       showToast(msg, 'success');
 
       // Refresh the report to reflect updated stock and adjustments in Sales Report
@@ -1876,16 +1946,28 @@ async function showEODReport() {
     // Today's flows (specifically for the selected EOD date)
     const todayTransactions = transactions.filter(t => t.date === dateStr);
     
-    // Calculate Today Sales (Incomes)
+    // Logic to distinguish adjustments (either by type or by word "Adjustment" in description)
+    const isAdjustment = (t) => t.type === 'adjustment-surplus' || (t.description && t.description.toLowerCase().includes('adjustment'));
+
+    // Today Sales (Incomes that are NOT adjustments)
     const todaySales = todayTransactions.reduce((sum, t) => {
+        if (isAdjustment(t)) return sum;
         if (t.type === 'income') return sum + Number(t.amount);
-        if (t.type === 'adjustment-surplus') return sum - Number(t.amount);
         return sum;
     }, 0);
     
-    // Calculate Today Expenses (Outflows)
+    // Today Expenses (Outflows that are NOT adjustments)
     const todayExpenses = todayTransactions.reduce((sum, t) => {
+        if (isAdjustment(t)) return sum;
         if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + Number(t.amount);
+        return sum;
+    }, 0);
+
+    // Today Adjustments (Shortages/Surplus)
+    const todayAdjustments = todayTransactions.reduce((sum, t) => {
+        if (!isAdjustment(t)) return sum;
+        if (t.type === 'income') return sum + Number(t.amount);
+        if (t.type === 'expense' || t.type === 'adjustment-surplus') return sum - Number(t.amount);
         return sum;
     }, 0);
 
@@ -1903,7 +1985,7 @@ async function showEODReport() {
 
     // Opening Balance (Account Baseline) + Net result of all previous days
     const oldCashHand = openingBalance + oldIncome - oldOutflow;
-    const todayCashHand = todaySales - todayExpenses;
+    const todayCashHand = todaySales + todayAdjustments - todayExpenses;
     const totalCashHand = oldCashHand + todayCashHand;
 
     const contentHTML = `
@@ -1922,6 +2004,12 @@ async function showEODReport() {
             <span style="color: #94a3b8;">Today Sales Amount</span>
             <span style="font-weight: 600; color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todaySales).replace('₹', '')}</span>
           </div>
+          ${todayAdjustments !== 0 ? `
+          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
+            <span style="color: #94a3b8;">Today Adjustment</span>
+            <span style="font-weight: 600; color: #f59e0b; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todayAdjustments).replace('₹', '')}</span>
+          </div>
+          ` : ''}
           <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
             <span style="color: #94a3b8;">Today Expenses</span>
             <span style="font-weight: 600; color: #ef4444; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
@@ -2005,6 +2093,12 @@ async function showEODReport() {
                         <span>Today Sales:</span>
                         <span>${formatCurrency(todaySales)}</span>
                     </div>
+                    ${todayAdjustments !== 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+                        <span>Today Adj.:</span>
+                        <span>${formatCurrency(todayAdjustments)}</span>
+                    </div>
+                    ` : ''}
                     <div style="display: flex; justify-content: space-between; margin: 8px 0;">
                         <span>Today Exp.:</span>
                         <span>${formatCurrency(todayExpenses)}</span>

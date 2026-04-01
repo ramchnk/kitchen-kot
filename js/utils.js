@@ -152,6 +152,12 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
       ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}
     </div>
     <table class="print-kot-items">${itemsHTML}</table>
+    <div class="print-total" style="border-top: 2px dashed black; padding-top: 5px; margin-top: 10px;">
+      <div class="grand-total" style="display:flex; justify-content:space-between; font-size: 18px; font-weight: 900;">
+        <span>TOTAL BILL:</span>
+        <span>${formatCurrency(order.totalAmount)}</span>
+      </div>
+    </div>
     <div class="print-footer">
       <p>--- Kitchen Copy ---</p>
     </div>
@@ -178,6 +184,12 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
       ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}
     </div>
     <table class="print-kot-items">${itemsHTML}</table>
+    <div class="print-total" style="border-top: 2px dashed black; padding-top: 5px; margin-top: 10px;">
+      <div class="grand-total" style="display:flex; justify-content:space-between; font-size: 18px; font-weight: 900;">
+        <span>TOTAL BILL:</span>
+        <span>${formatCurrency(order.totalAmount)}</span>
+      </div>
+    </div>
     <div class="print-footer">
       <p>--- Liquor/Counter Copy ---</p>
     </div>
