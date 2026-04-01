@@ -142,7 +142,7 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
 
   return `
     <div class="print-header">
-      <h2>KITCHEN ORDER</h2>
+      <h2>KITCHEN / COUNTER</h2>
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
@@ -159,7 +159,7 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
       </div>
     </div>
     <div class="print-footer">
-      <p>--- Kitchen Copy ---</p>
+      <p>--- Kitchen / Counter Copy ---</p>
     </div>
   `;
 }
@@ -174,7 +174,7 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
 
   return `
     <div class="print-header">
-      <h2>LIQUOR / COUNTER</h2>
+      <h2>LIQUOR</h2>
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
@@ -191,7 +191,7 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
       </div>
     </div>
     <div class="print-footer">
-      <p>--- Liquor/Counter Copy ---</p>
+      <p>--- Liquor Copy ---</p>
     </div>
   `;
 }
@@ -316,7 +316,7 @@ export function generateStockPrintHTML(ingredients) {
 
 
 export function isCounterItem(item) {
-  const COUNTER_CATEGORIES = ['LIQUOR', 'COOL DRINKS', 'CIGARETTE', 'CIGARATE', 'CIGARETTES'];
   const cat = (item.category || '').toUpperCase().trim();
-  return COUNTER_CATEGORIES.includes(cat);
+  // Only Liquor items go to the second slip
+  return cat === 'LIQUOR' || item.isLiquor === true;
 }

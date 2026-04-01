@@ -201,8 +201,9 @@ async function updateSidebarSales() {
         });
 
         // We could add a counterTotal UI element here too if needed, but for now let's just fix kitchenTotal accuracy
+        // Include counter items (Cool Drinks, Cigarettes) in the kitchenTotal for consistency with the new grouping
         if (liquorEl) liquorEl.textContent = formatCurrency(liquorTotal);
-        if (kitchenEl) kitchenEl.textContent = formatCurrency(kitchenTotal);
+        if (kitchenEl) kitchenEl.textContent = formatCurrency(kitchenTotal + counterTotal);
     } catch (err) {
         console.error('Error updating sidebar sales:', err);
     }

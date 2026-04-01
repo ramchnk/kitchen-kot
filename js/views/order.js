@@ -595,6 +595,7 @@ function setupItemSearch() {
         quantity: qty,
         price: menuItem.sellingPrice,
         amount: qty * menuItem.sellingPrice,
+        isLiquor: menuItem.isLiquor || false,
         incentivePercent: menuItem.incentivePercent || 0,
         kotPrintedQty: 0,
       });
