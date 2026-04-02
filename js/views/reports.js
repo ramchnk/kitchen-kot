@@ -1422,6 +1422,12 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
           <p class="text-muted" style="font-size:0.75rem; margin-top:4px">
             This will update the master "Ingredient/Item" stock count to match these actual values. Only uncheck if you've already had sales after the date being saved.
           </p>
+        <div class="form-check" style="margin-top:12px">
+          <input type="checkbox" id="update-wallet-history" checked>
+          <label for="update-wallet-history" style="font-weight:600">Update Wallet History? (Earnings/Surplus)</label>
+          <p class="text-muted" style="font-size:0.75rem; margin-top:4px">
+            Uncheck if you only want to update the stock record without changing your wallet cash balance for that date.
+          </p>
         </div>
       </div>
     `, {
@@ -1436,8 +1442,26 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     document.getElementById('btn-final-save-closing-stock').onclick = async () => {
       const finalDateStr = document.getElementById('confirm-save-date').value;
       const shouldUpdateMaster = document.getElementById('update-master-stock').checked;
+      const shouldUpdateWallet = document.getElementById('update-wallet-history').checked;
+      
+      const reportDateInput = document.getElementById('report-date')?.value || todayISO();
+      if (finalDateStr !== reportDateInput) {
+        if (!confirm(`Warning: You are viewing the report for ${formatDate(reportDateInput)} but saving for ${formatDate(finalDateStr)}. \n\nThis may cause incorrect Opening Stock records for ${formatDate(finalDateStr)}. \n\nAre you sure you want to proceed? For best results, generate the report for ${formatDate(finalDateStr)} first then save.`)) {
+          return;
+        }
+      }
+
+      // READ FRESH VALUES FROM INPUTS - This ensures manual updates are captured
+      const updatedProductData = productData.map(p => {
+        const input = tab.querySelector(`.closing-stock-input[data-product-id="${p.id}"]`);
+        if (input) {
+          return { ...p, actualClosing: parseInt(input.value) || 0 };
+        }
+        return p;
+      });
+
       closeModal();
-      await executeSaveClosingStock(finalDateStr, productData, shouldUpdateMaster);
+      await executeSaveClosingStock(finalDateStr, updatedProductData, shouldUpdateMaster, shouldUpdateWallet);
     };
   });
 
@@ -1474,7 +1498,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     executeSaveClosingStock('2026-03-30', finalRestoreData, true);
   });
 
-  async function executeSaveClosingStock(dateStr, pData, shouldUpdateMaster = true) {
+  async function executeSaveClosingStock(dateStr, pData, shouldUpdateMaster = true, shouldUpdateWallet = true) {
     const inputs = tab.querySelectorAll('.closing-stock-input');
     let updatedCount = 0;
     let adjustmentCount = 0;
@@ -1560,18 +1584,20 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         await DB.add('stockAdjustments', adj);
       }
 
-      // Record Consolidated Wallet Transactions
-      if (totalAdjIncome > 0) {
-        const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
-        await DB.recordWalletTransaction('income', totalAdjIncome, desc, `STOCK-ADJ-${dateStr}`, dateStr);
-      }
-      if (totalAdjSurplus > 0) {
-        const desc = `EOD Stock Surplus: ${surpProducts.join(', ')}`;
-        await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`, dateStr);
-      }
+      // Record Consolidated Wallet Transactions (if requested)
+      if (shouldUpdateWallet) {
+        if (totalAdjIncome > 0) {
+          const desc = `EOD Counter Sales (Unbilled): ${adjProducts.join(', ')}`;
+          await DB.recordWalletTransaction('income', totalAdjIncome, desc, `STOCK-ADJ-${dateStr}`, dateStr);
+        }
+        if (totalAdjSurplus > 0) {
+          const desc = `EOD Stock Surplus: ${surpProducts.join(', ')}`;
+          await DB.recordWalletTransaction('adjustment-surplus', totalAdjSurplus, desc, `STOCK-SURP-${dateStr}`, dateStr);
+        }
 
-      if (txnsToDelete.length > 0 || totalAdjIncome > 0 || totalAdjSurplus > 0) {
-          await DB.recalculateWalletTotals();
+        if (txnsToDelete.length > 0 || totalAdjIncome > 0 || totalAdjSurplus > 0) {
+            await DB.recalculateWalletTotals();
+        }
       }
 
       const msg = adjustmentCount > 0
