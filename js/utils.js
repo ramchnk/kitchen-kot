@@ -140,9 +140,12 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
     </tr>
   `).join('');
 
+  // Calculate local total for only the items being printed in this KOT
+  const localTotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
   return `
     <div class="print-header">
-      <h2>KITCHEN / COUNTER</h2>
+      <h2>FOOD</h2>
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
@@ -155,11 +158,11 @@ export function generateKOTPrintHTML(order, supplierName, tableName) {
     <div class="print-total" style="border-top: 2px dashed black; padding-top: 5px; margin-top: 10px;">
       <div class="grand-total" style="display:flex; justify-content:space-between; font-size: 18px; font-weight: 900;">
         <span>TOTAL BILL:</span>
-        <span>${formatCurrency(order.totalAmount)}</span>
+        <span>${formatCurrency(localTotal)}</span>
       </div>
     </div>
     <div class="print-footer">
-      <p>--- Kitchen / Counter Copy ---</p>
+      <p>--- Kitchen Copy (Food) ---</p>
     </div>
   `;
 }
@@ -172,9 +175,12 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
     </tr>
   `).join('');
 
+  // Calculate local total for only the items being printed in this KOT
+  const localTotal = counterItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
   return `
     <div class="print-header">
-      <h2>LIQUOR</h2>
+      <h2>COOL DRINKS / CIGARETTES</h2>
     </div>
     <div class="print-kot-title">KOT #${order.orderNumber}</div>
     <div class="print-meta">
@@ -187,11 +193,11 @@ export function generateCounterKOTPrintHTML(order, supplierName, tableName, coun
     <div class="print-total" style="border-top: 2px dashed black; padding-top: 5px; margin-top: 10px;">
       <div class="grand-total" style="display:flex; justify-content:space-between; font-size: 18px; font-weight: 900;">
         <span>TOTAL BILL:</span>
-        <span>${formatCurrency(order.totalAmount)}</span>
+        <span>${formatCurrency(localTotal)}</span>
       </div>
     </div>
     <div class="print-footer">
-      <p>--- Liquor Copy ---</p>
+      <p>--- Counter Copy (Drinks/Cig) ---</p>
     </div>
   `;
 }
@@ -317,6 +323,10 @@ export function generateStockPrintHTML(ingredients) {
 
 export function isCounterItem(item) {
   const cat = (item.category || '').toUpperCase().trim();
-  // Only Liquor items go to the second slip
-  return cat === 'LIQUOR' || item.isLiquor === true;
+  // Items that go to the "Counter" (Cigarette and Cool drinks) slip
+  const counterCats = [
+    'CIGARETTE', 'CIGARETTES', 'CIGERATE', 'CIGARATE',
+    'COOL DRINKS', 'COOLDRINKS', 'COOLDRINK', 'SOFT DRINKS'
+  ];
+  return counterCats.includes(cat);
 }

@@ -783,9 +783,15 @@ async function handleKOT() {
     const supplierName = supplier?.name || '';
     const tableName = table?.name || 'N/A';
 
-    // Split delta items into Kitchen vs Counter
-    const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
-    const counterItems = deltaItems.filter(item => isCounterItem(item));
+    // Split delta items into Kitchen (Food) vs Counter (Drinks/Cigarettes)
+    // Filter out liquor items as per user's request: "no need to liquor items any more in printing"
+    const printableItems = deltaItems.filter(item => {
+      const cat = (item.category || '').toUpperCase().trim();
+      return cat !== 'LIQUOR' && !item.isLiquor;
+    });
+
+    const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+    const counterItems = printableItems.filter(item => isCounterItem(item));
 
     if (kitchenItems.length > 0 && counterItems.length > 0) {
       const kitchenOrder = { ...order, items: kitchenItems };
@@ -795,7 +801,7 @@ async function handleKOT() {
       }, 1000);
     } else if (counterItems.length > 0) {
       printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
-    } else {
+    } else if (kitchenItems.length > 0) {
       const printOrder = { ...order, items: kitchenItems };
       printContent(generateKOTPrintHTML(printOrder, supplierName, tableName));
     }
@@ -881,15 +887,27 @@ async function handleBill() {
       const supplierName = suppliers.find(s => s.id === orderState.supplierId)?.name || '';
       const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
 
-      const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
-      const counterItems = deltaItems.filter(item => isCounterItem(item));
+      // Filter out liquor items from KOT as requested
+      const printableItems = deltaItems.filter(item => {
+        const cat = (item.category || '').toUpperCase().trim();
+        return cat !== 'LIQUOR' && !item.isLiquor;
+      });
+
+      const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+      const counterItems = printableItems.filter(item => isCounterItem(item));
 
       if (kitchenItems.length > 0) {
         const kitchenOrder = { ...order, items: kitchenItems };
         printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
       }
       if (counterItems.length > 0) {
-        printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+        if (kitchenItems.length > 0) {
+          setTimeout(() => {
+            printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+          }, 1000);
+        } else {
+          printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+        }
       }
     }
 
@@ -995,8 +1013,14 @@ async function handleSaveOrder() {
       const supplierName = suppliers.find(s => s.id === orderState.supplierId)?.name || '';
       const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
 
-      const kitchenItems = deltaItems.filter(item => !isCounterItem(item));
-      const counterItems = deltaItems.filter(item => isCounterItem(item));
+      // Filter out liquor items from KOT as requested
+      const printableItems = deltaItems.filter(item => {
+        const cat = (item.category || '').toUpperCase().trim();
+        return cat !== 'LIQUOR' && !item.isLiquor;
+      });
+
+      const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+      const counterItems = printableItems.filter(item => isCounterItem(item));
 
       if (kitchenItems.length > 0 && counterItems.length > 0) {
         const kitchenOrder = { ...order, items: kitchenItems };
@@ -1006,7 +1030,7 @@ async function handleSaveOrder() {
         }, 1000);
       } else if (counterItems.length > 0) {
         printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
-      } else {
+      } else if (kitchenItems.length > 0) {
         const printOrder = { ...order, items: kitchenItems };
         printContent(generateKOTPrintHTML(printOrder, supplierName, tableName));
       }
@@ -1337,8 +1361,13 @@ async function showCompletedBills(initialDate = todayISO()) {
           const supName = suppliers.find(s => s.id === order.supplierId)?.name || '';
           const tblName = tables.find(t => t.id === order.tableId)?.name || 'N/A';
 
-          const kitchenItems = order.items.filter(item => !isCounterItem(item));
-          const counterItems = order.items.filter(item => isCounterItem(item));
+          const printableItems = (order.items || []).filter(item => {
+            const cat = (item.category || '').toUpperCase().trim();
+            return cat !== 'LIQUOR' && !item.isLiquor;
+          });
+
+          const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+          const counterItems = printableItems.filter(item => isCounterItem(item));
 
           if (kitchenItems.length > 0) {
             const kitchenOrder = { ...order, items: kitchenItems };
