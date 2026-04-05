@@ -7,16 +7,13 @@ export async function renderGrocerySuppliersView(container) {
   const bills = await DB.getAll('supplierBills');
   const payments = await DB.getAll('supplierPayments');
 
-  // Calculate outstanding per supplier
-  const supplierOutstanding = {};
   suppliers.forEach(s => {
     const supplierBills = bills.filter(b => b.supplierId === s.id);
     const supplierPayments = payments.filter(p => p.supplierId === s.id);
     const totalBilled = supplierBills.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
     const totalPaid = supplierPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const openingBalance = s.openingBalance || 0;
-    const outstanding = (totalBilled - totalPaid) + openingBalance;
-    supplierOutstanding[s.id] = { totalBilled, totalPaid, outstanding, billCount: supplierBills.length, baseOutstanding: totalBilled - totalPaid };
+    const outstanding = totalBilled - totalPaid;
+    supplierOutstanding[s.id] = { totalBilled, totalPaid, outstanding, billCount: supplierBills.length };
   });
 
   const totalOutstanding = Object.values(supplierOutstanding).reduce((s, o) => s + o.outstanding, 0);
@@ -125,17 +122,24 @@ export async function renderGrocerySuppliersView(container) {
 
   // Reset All
   document.getElementById('btn-reset-all-outstanding')?.addEventListener('click', async () => {
-    if (!confirm('This will force all supplier outstanding balances to zero by applying internal adjustments. No wallet/expense records will be changed. Proceed?')) return;
+    if (!confirm('This will force all supplier balances to ₹0.00 by recording internal corrections. This will be visible in Production immediately. Proceed?')) return;
     
     let updatedCount = 0;
+    const today = new Date().toISOString().split('T')[0];
+
     for (const s of suppliers) {
       const out = supplierOutstanding[s.id];
       if (out && out.outstanding !== 0) {
-        // To make current outstanding 0: current_outstanding + adjustment = 0 => adjustment = -current_outstanding
-        // Since current_outstanding = baseOutstanding + currentOpeningBalance
-        // We want newOpeningBalance = -(baseOutstanding)
-        s.openingBalance = -(out.baseOutstanding || 0);
-        await DB.update('grocerySuppliers', s);
+        // Create a balancing payment to bring outstanding to 0
+        const correctionPayment = {
+          supplierId: s.id,
+          amount: out.outstanding, // If outstanding is 100, we add 100 paid to make it 0
+          paymentDate: today,
+          paymentMode: 'CORRECTION',
+          notes: 'Automatic Balance Reset',
+          createdAt: new Date().toISOString(),
+        };
+        await DB.add('supplierPayments', correctionPayment);
         updatedCount++;
       }
     }
@@ -199,16 +203,8 @@ export async function renderGrocerySuppliersView(container) {
 function showAdjustOutstandingModal(supplier, out, container) {
   showModal(`Adjust Outstanding — ${supplier.name}`, `
     <div style="background:var(--bg-elevated);padding:16px;border-radius:12px;margin-bottom:16px;border:1px solid var(--border-color)">
-      <div class="summary-row mb-1">
-        <span class="summary-label">Current Billed - Paid</span>
-        <span class="summary-value font-mono">${formatCurrency(out.baseOutstanding)}</span>
-      </div>
-      <div class="summary-row mb-1">
-        <span class="summary-label">Current External Adjustment</span>
-        <span class="summary-value font-mono">${formatCurrency(supplier.openingBalance || 0)}</span>
-      </div>
-      <div class="summary-row border-top pt-2 mt-2">
-        <span class="summary-label" style="font-weight:700">Total Outstanding</span>
+      <div class="summary-row">
+        <span class="summary-label" style="font-weight:700">Current Outstanding</span>
         <span class="summary-value font-mono ${out.outstanding > 0 ? 'text-danger' : 'text-success'}" style="font-weight:700;font-size:1.1rem">
           ${formatCurrency(out.outstanding)}
         </span>
@@ -218,7 +214,7 @@ function showAdjustOutstandingModal(supplier, out, container) {
     <div class="form-group">
       <label class="form-label">Set New Total Outstanding (₹)</label>
       <input type="number" class="form-input" id="modal-adj-new-total" value="${out.outstanding.toFixed(2)}" step="0.01" style="font-family:'JetBrains Mono',monospace;font-size:1.2rem">
-      <p class="text-muted mt-1" style="font-size:0.8rem">Updating this will only change the "Outstanding" display. It does NOT create payments, bills, or wallet transactions.</p>
+      <p class="text-muted mt-1" style="font-size:0.8rem">This will create a 'CORRECTION' entry in the ledger to reach the desired balance. It works on both Local and Production.</p>
     </div>
   `, {
     footer: `
@@ -229,13 +225,18 @@ function showAdjustOutstandingModal(supplier, out, container) {
 
   document.getElementById('modal-adj-save')?.addEventListener('click', async () => {
     const newTotal = parseFloat(document.getElementById('modal-adj-new-total').value) || 0;
-    
-    // Logic: newTotal = baseOutstanding + newOpeningBalance
-    // => newOpeningBalance = newTotal - baseOutstanding
-    const newOpeningBalance = newTotal - (out.baseOutstanding || 0);
-    
-    supplier.openingBalance = newOpeningBalance;
-    await DB.update('grocerySuppliers', supplier);
+    const diff = out.outstanding - newTotal; // If we have 100 out and want 20, we need to add 80 paid
+
+    if (diff !== 0) {
+      await DB.add('supplierPayments', {
+        supplierId: supplier.id,
+        amount: diff,
+        paymentDate: new Date().toISOString().split('T')[0],
+        paymentMode: 'CORRECTION',
+        notes: 'Manual Balance Adjustment',
+        createdAt: new Date().toISOString(),
+      });
+    }
     
     showToast(`Outstanding for ${supplier.name} updated to ${formatCurrency(newTotal)}`, 'success');
     closeModal();
@@ -267,10 +268,6 @@ function showSupplierForm(supplier, container) {
         <label class="form-label">Address</label>
         <input type="text" class="form-input" id="modal-gs-address" value="${supplier?.address || ''}" placeholder="Address">
       </div>
-      <div class="form-group">
-        <label class="form-label">Opening Balance / Adjustment (₹)</label>
-        <input type="number" class="form-input" id="modal-gs-opening-balance" value="${supplier?.openingBalance || 0}" step="0.01" style="font-family:'JetBrains Mono',monospace">
-      </div>
     </div>
     <div class="form-check">
       <input type="checkbox" id="modal-gs-active" ${supplier?.active !== false ? 'checked' : ''}>
@@ -286,16 +283,6 @@ function showSupplierForm(supplier, container) {
   document.getElementById('modal-gs-save')?.addEventListener('click', async () => {
     const name = document.getElementById('modal-gs-name').value.trim();
     if (!name) { showToast('Supplier name is required', 'error'); return; }
-
-    const data = {
-      name,
-      contact: document.getElementById('modal-gs-contact').value.trim(),
-      gstNumber: document.getElementById('modal-gs-gst').value.trim(),
-      address: document.getElementById('modal-gs-address').value.trim(),
-      openingBalance: parseFloat(document.getElementById('modal-gs-opening-balance')?.value) || 0,
-      active: document.getElementById('modal-gs-active').checked,
-      createdAt: supplier?.createdAt || new Date().toISOString(),
-    };
 
     if (isEdit) { data.id = supplier.id; await DB.update('grocerySuppliers', data); showToast(`"${name}" updated`, 'success'); }
     else { await DB.add('grocerySuppliers', data); showToast(`"${name}" added`, 'success'); }
@@ -447,26 +434,13 @@ async function showLedger(supplier, container) {
   
   const totalBilled = bills.reduce((s, b) => s + b.totalAmount, 0);
   const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
-  const openingBalance = supplier.openingBalance || 0;
-  const outstanding = (totalBilled - totalPaid) + openingBalance;
+  const outstanding = totalBilled - totalPaid;
 
   // Combine and sort chronologically
   const entries = [
     ...bills.map(b => ({ type: 'bill', date: b.billDate, ref: b.billNumber, description: b.description || 'Bill', amount: b.totalAmount, id: b.id, createdAt: b.createdAt })),
     ...payments.map(p => ({ type: 'payment', date: p.paymentDate, ref: p.paymentMode?.toUpperCase(), description: p.notes || 'Payment', amount: p.amount, id: p.id, createdAt: p.createdAt })),
   ];
-
-  if (openingBalance !== 0) {
-    entries.push({ 
-      type: 'adjustment', 
-      date: supplier.createdAt?.substring(0, 10) || '2000-01-01', 
-      ref: 'ADJ', 
-      description: 'Opening Balance / Correction', 
-      amount: Math.abs(openingBalance), 
-      isNegative: openingBalance < 0,
-      createdAt: supplier.createdAt || '2000-01-01' 
-    });
-  }
 
   entries.sort((a, b) => new Date(a.date) - new Date(b.date) || new Date(a.createdAt) - new Date(b.createdAt));
 
@@ -477,8 +451,6 @@ async function showLedger(supplier, container) {
       runningBalance += entry.amount;
     } else if (entry.type === 'payment') {
       runningBalance -= entry.amount;
-    } else if (entry.type === 'adjustment') {
-      runningBalance += (entry.isNegative ? -entry.amount : entry.amount);
     }
     return { ...entry, balance: runningBalance };
   });
@@ -490,9 +462,6 @@ async function showLedger(supplier, container) {
       </div>
       <div class="stat-card" style="padding:12px">
         <div><div class="stat-value text-success" style="font-size:1rem">${formatCurrency(totalPaid)}</div><div class="stat-label">Paid</div></div>
-      </div>
-      <div class="stat-card" style="padding:12px">
-        <div><div class="stat-value blue" style="font-size:1rem">${formatCurrency(openingBalance)}</div><div class="stat-label">Adjustment</div></div>
       </div>
       <div class="stat-card" style="padding:12px">
         <div><div class="stat-value ${outstanding > 0 ? 'text-danger' : 'text-success'}" style="font-size:1rem">${formatCurrency(outstanding)}</div><div class="stat-label">Outstanding</div></div>
@@ -524,10 +493,10 @@ async function showLedger(supplier, container) {
             } else if (row.type === 'payment') {
               credit = formatCurrency(row.amount);
               typeLabel = '💰 PAID'; typeClass = 'badge-bill';
-            } else if (row.type === 'adjustment') {
-              if (row.isNegative) credit = formatCurrency(row.amount);
-              else debit = formatCurrency(row.amount);
-              typeLabel = '🔧 ADJ'; typeClass = 'badge-kot'; // Use a generic badge style
+            }
+
+            if (row.ref === 'CORRECTION' || row.paymentMode === 'CORRECTION') {
+                typeLabel = '🔧 CORR'; typeClass = 'badge-kot';
             }
 
             return `

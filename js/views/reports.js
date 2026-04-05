@@ -2023,75 +2023,50 @@ async function showEODReport() {
     const closingBalance = oldCashHand + todayCashHand;
 
     const contentHTML = `
-      <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 32px; border-radius: 12px; font-family: 'Outfit', -apple-system, sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 16px;">
-          <h2 style="font-size: 1.75rem; font-weight: 700; display: flex; align-items: center; gap: 12px; letter-spacing: -0.025em; margin: 0;">
-            <span class="material-symbols-outlined" style="color:#10b981; font-size: 32px;">analytics</span> Kitchen Daily Report
-          </h2>
-          <button id="btn-export-eod-image" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); color: #818cf8; border-radius: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s;" title="Export as Image">
+      <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 40px; border-radius: 12px; font-family: 'Outfit', sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 500px; margin: 0 auto; min-height: 550px; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 30px;">
+          <div style="background: #10b981; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+            <span class="material-symbols-outlined" style="color:white; font-size: 28px;">analytics</span>
+          </div>
+          <h2 style="font-size: 1.8rem; font-weight: 800; margin: 0; letter-spacing: -0.01em;">Kitchen Daily Report</h2>
+          <div style="flex:1"></div>
+          <button id="btn-export-eod-image" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; border-radius: 8px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
             <span class="material-symbols-outlined">image</span>
           </button>
         </div>
         
-        <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; border: 1px solid var(--border); box-shadow: var(--shadow-lg);">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
-            <!-- Left Side: Breakdown -->
-            <div style="display: flex; flex-direction: column; gap: 15px;">
-                <div class="summary-row" style="padding-bottom: 10px; border-bottom: 2px solid var(--border);">
-                    <span class="summary-label" style="font-size: 1.1rem; font-weight: 800;">Opening Balance</span>
-                    <span class="summary-value" style="font-size: 1.1rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;">${formatCurrency(oldCashHand)}</span>
-                </div>
-                
-                <div class="summary-row" style="margin-top: 10px;">
-                    <span class="summary-label" style="color: var(--primary); font-weight: 600;">(+) Today Sales</span>
-                    <span class="summary-value" style="color: var(--primary); font-weight: 600;">${formatCurrency(todaySales)}</span>
-                </div>
-                <div class="summary-row">
-                    <span class="summary-label" style="color: ${todayAdjustments >= 0 ? '#10b981' : '#f43f5e'};">(${todayAdjustments >= 0 ? '+' : '-'}) Adjustments</span>
-                    <span class="summary-value" style="color: ${todayAdjustments >= 0 ? '#10b981' : '#f43f5e'};">${formatCurrency(Math.abs(todayAdjustments))}</span>
-                </div>
-                
-                <div style="margin-top: 10px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-                    <p style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 700;">(-) Today Expenses Breakdown</p>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>• Direct Shop Expenses</span><span>${formatCurrency(todayExpManual)}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>• Supplier Payments</span><span>${formatCurrency(todayExpSupplier)}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>• Waiter Incentives</span><span>${formatCurrency(todayExpIncentive)}</span>
-                        </div>
-                        ${todayExpWithdrawals > 0 ? `
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>• Withdrawals / Transfers</span><span>${formatCurrency(todayExpWithdrawals)}</span>
-                        </div>` : ''}
-                        <div style="display: flex; justify-content: space-between; padding-top: 6px; border-top: 1px dotted var(--border); font-weight: 700;">
-                            <span>Total Outflow</span><span>${formatCurrency(todayExpenses)}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right Side: Grand Total -->
-            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-left: 1px solid var(--border); padding-left: 40px;">
-                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">TODAY'S CASH IN HAND</p>
-                <div style="font-size: 2.2rem; font-weight: 900; color: #10b981; margin-bottom: 30px; font-family: 'JetBrains Mono', monospace;">
-                    ${formatCurrency(todayCashHand)}
-                </div>
-                
-                <div style="width: 100%; border-top: 3px double var(--border); padding-top: 20px; text-align: center;">
-                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; font-weight: 700; text-transform: uppercase;">Final Closing Balance</p>
-                    <div style="font-size: 2.4rem; font-weight: 900; color: var(--primary); font-family: 'JetBrains Mono', monospace;">
-                        ${formatCurrency(closingBalance)}
-                    </div>
-                </div>
-            </div>
+        <div style="margin-bottom: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
+            <span>Today Sales Amount</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todaySales).replace('₹', '')}</span>
+          </div>
+          
+          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
+            <span>Today Expenses</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
+          </div>
+          
+          <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 20px 0;"></div>
+          
+          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
+            <span>Today cash in Hand</span>
+            <span style="color: #fbbf24; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
+          </div>
+          
+          <div class="summary-row" style="margin-bottom: 32px; font-size: 1.35rem; font-weight: 600;">
+            <span>Opening Balance</span>
+            <span style="color: #f8fafc; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(oldCashHand).replace('₹', '')}</span>
+          </div>
         </div>
-    </div>
+
+        <div style="margin-top: auto; background: rgba(16, 185, 129, 0.4); border: 2px solid #10b981; border-radius: 12px; padding: 22px 30px; text-align: center;">
+          <div style="display: flex; justify-content: space-between; align-items: center; color: #10b981; font-weight: 900; font-size: 1.8rem;">
+            <span style="color: #2dd4bf;">Closing Balance</span>
+            <span style="color: #2dd4bf; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(closingBalance).replace('₹', '')}</span>
+          </div>
+        </div>
         
-        <div id="eod-summary-text" style="margin-top: 32px; font-size: 1.25rem; color: #cbd5e1; text-align: center; font-style: italic; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px;">
+        <div style="margin-top: 32px; font-size: 1rem; color: #94a3b8; text-align: center; font-style: italic;">
           Business Summary for <strong>${formatDate(dateStr)}</strong>
         </div>
       </div>
@@ -2099,9 +2074,10 @@ async function showEODReport() {
 
     showModal('', contentHTML, {
         hideCloseButton: true,
+        style: 'background: transparent; border: none; box-shadow: none; width: 100%; max-width: 520px;',
         footer: `
-            <button class="btn btn-ghost" id="btn-close-eod-modal" style="color: var(--text-secondary)">Close</button>
-            <button class="btn btn-primary" id="btn-print-eod-modal" style="background:var(--primary)">
+            <button class="btn btn-ghost" id="btn-close-eod-modal" style="color: #94a3b8">Close</button>
+            <button class="btn btn-primary" id="btn-print-eod-modal" style="background:#10b981; border-color:#10b981">
                 <span class="material-symbols-outlined">print</span> Print Report
             </button>
         `
@@ -2143,42 +2119,36 @@ async function showEODReport() {
     document.getElementById('btn-print-eod-modal').onclick = () => {
         const printHTML = `
             <div style="font-family: monospace; width: 100%; max-width: 300px; margin: 0 auto; padding: 20px; color: #000;">
-                <h2 style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 10px;">KITCHEN DAILY REPORT</h2>
-                <div style="margin: 10px 0; text-align: center; border-bottom: 1px solid #000; padding-bottom: 5px;">DATE: ${formatDate(dateStr).toUpperCase()}</div>
+                <h2 style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px;">DAILY REPORT</h2>
+                <div style="margin: 10px 0; text-align: center; border-bottom: 1px solid #000; padding-bottom: 10px;">DATE: ${formatDate(dateStr).toUpperCase()}</div>
                 
-                <div style="margin: 15px 0;">
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-                        <span>Today Sales:</span>
+                <div style="margin: 20px 0; font-size: 1.1em; line-height: 1.6;">
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Sales:</span>
                         <span>${formatCurrency(todaySales)}</span>
                     </div>
-                    ${todayAdjustments !== 0 ? `
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-                        <span>Today Adj.:</span>
-                        <span>${formatCurrency(todayAdjustments)}</span>
-                    </div>
-                    ` : ''}
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-                        <span>Today Exp.:</span>
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Expenses:</span>
                         <span>${formatCurrency(todayExpenses)}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; margin: 12px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 8px;">
-                        <span>Today Cash:</span>
+                    <div style="display: flex; justify-content: space-between; margin: 15px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 10px;">
+                        <span>Cash in Hand:</span>
                         <span>${formatCurrency(todayCashHand)}</span>
                     </div>
                     
-                    <div style="display: flex; justify-content: space-between; margin: 8px 0; border-top: 1px solid #000; padding-top: 8px;">
-                        <span>Opening Bal:</span>
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0; border-top: 1px solid #000; padding-top: 10px;">
+                        <span>Opening:</span>
                         <span>${formatCurrency(oldCashHand)}</span>
                     </div>
                     
-                    <div style="display: flex; justify-content: space-between; margin: 20px 0 10px 0; font-size: 1.25em; font-weight: bold; border: 2px solid #000; padding: 10px;">
-                        <span>CLOSING BAL:</span>
-                        <span>${formatCurrency(totalCashHand)}</span>
+                    <div style="display: flex; justify-content: space-between; margin: 25px 0 15px 0; font-size: 1.3em; font-weight: bold; border: 2px solid #000; padding: 12px;">
+                        <span>CLOSING:</span>
+                        <span>${formatCurrency(closingBalance)}</span>
                     </div>
                 </div>
                 
-                <div style="text-align: center; font-size: 0.85em; margin-top: 30px; border-top: 1px solid #000; padding-top: 10px;">
-                    GENERATED ON: ${formatDateTime(new Date().toISOString())}<br>
+                <div style="text-align: center; font-size: 0.9em; margin-top: 40px; border-top: 1px solid #000; padding-top: 15px;">
+                    ${formatDateTime(new Date().toISOString())}<br>
                     --- End of Report ---
                 </div>
             </div>
