@@ -7,6 +7,8 @@ export async function renderGrocerySuppliersView(container) {
   const bills = await DB.getAll('supplierBills');
   const payments = await DB.getAll('supplierPayments');
 
+  const supplierOutstanding = {};
+
   suppliers.forEach(s => {
     const supplierBills = bills.filter(b => b.supplierId === s.id);
     const supplierPayments = payments.filter(p => p.supplierId === s.id);
@@ -284,8 +286,23 @@ function showSupplierForm(supplier, container) {
     const name = document.getElementById('modal-gs-name').value.trim();
     if (!name) { showToast('Supplier name is required', 'error'); return; }
 
-    if (isEdit) { data.id = supplier.id; await DB.update('grocerySuppliers', data); showToast(`"${name}" updated`, 'success'); }
-    else { await DB.add('grocerySuppliers', data); showToast(`"${name}" added`, 'success'); }
+    const data = {
+      name,
+      contact: document.getElementById('modal-gs-contact').value.trim(),
+      gstNumber: document.getElementById('modal-gs-gst').value.trim(),
+      address: document.getElementById('modal-gs-address').value.trim(),
+      active: document.getElementById('modal-gs-active').checked,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (isEdit) { 
+      data.id = supplier.id; 
+      await DB.update('grocerySuppliers', data); 
+      showToast(`"${name}" updated`, 'success'); 
+    } else { 
+      await DB.add('grocerySuppliers', data); 
+      showToast(`"${name}" added`, 'success'); 
+    }
 
     closeModal();
     renderGrocerySuppliersView(container);
