@@ -1970,7 +1970,7 @@ async function showEODReport() {
     const openingBalance = await DB.getAccountBalance();
 
     // Today's flows (specifically for the selected EOD date)
-    const todayTransactions = transactions.filter(t => t.date === dateStr);
+    const todayTransactions = transactions.filter(t => (t.date || t.createdAt?.substring(0, 10)) === dateStr);
     
     // Logic to distinguish adjustments (either by type or by word "Adjustment" in description)
     const isAdjustment = (t) => t.type === 'adjustment-surplus' || (t.description && t.description.toLowerCase().includes('adjustment'));
@@ -1981,13 +1981,21 @@ async function showEODReport() {
         if (t.type === 'income') return sum + Number(t.amount);
         return sum;
     }, 0);
+
+    // Detailed Today Expenses Breakdown
+    const todayExpManual = todayTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0);
+    const todayExpSupplier = todayTransactions.filter(t => t.type === 'purchase').reduce((sum, t) => sum + Number(t.amount), 0);
+    const todayExpIncentive = todayTransactions.filter(t => t.sourceId?.startsWith('INC-PAY-')).reduce((sum, t) => sum + Number(t.amount), 0);
+    const todayExpWithdrawals = todayTransactions.filter(t => t.type === 'withdrawal').reduce((sum, t) => sum + Number(t.amount), 0);
     
-    // Today Expenses (Outflows that are NOT adjustments)
-    const todayExpenses = todayTransactions.reduce((sum, t) => {
-        if (isAdjustment(t)) return sum;
-        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + Number(t.amount);
-        return sum;
+    // Everything else that is an outflow
+    const todayExpOthers = todayTransactions.reduce((sum, t) => {
+        if (isAdjustment(t) || t.type === 'income') return sum;
+        if (['expense', 'purchase', 'withdrawal'].includes(t.type) || t.sourceId?.startsWith('INC-PAY-')) return sum;
+        return sum + Number(t.amount);
     }, 0);
+
+    const todayExpenses = todayExpManual + todayExpSupplier + todayExpIncentive + todayExpWithdrawals + todayExpOthers;
 
     // Today Adjustments (Shortages/Surplus)
     const todayAdjustments = todayTransactions.reduce((sum, t) => {
@@ -1998,7 +2006,7 @@ async function showEODReport() {
     }, 0);
 
     // Old flows (All transactions before the selected EOD date)
-    const oldTransactions = transactions.filter(t => t.date < dateStr);
+    const oldTransactions = transactions.filter(t => (t.date || t.createdAt?.substring(0, 10)) < dateStr);
     const oldIncome = oldTransactions.reduce((sum, t) => {
         if (t.type === 'income') return sum + Number(t.amount);
         if (t.type === 'adjustment-surplus') return sum - Number(t.amount);
@@ -2012,7 +2020,7 @@ async function showEODReport() {
     // Opening Balance (Account Baseline) + Net result of all previous days
     const oldCashHand = openingBalance + oldIncome - oldOutflow;
     const todayCashHand = todaySales + todayAdjustments - todayExpenses;
-    const totalCashHand = oldCashHand + todayCashHand;
+    const closingBalance = oldCashHand + todayCashHand;
 
     const contentHTML = `
       <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 32px; border-radius: 12px; font-family: 'Outfit', -apple-system, sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);">
@@ -2025,35 +2033,63 @@ async function showEODReport() {
           </button>
         </div>
         
-        <div style="display: flex; flex-direction: column; gap: 20px;">
-          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
-            <span style="color: #94a3b8;">Today Sales Amount</span>
-            <span style="font-weight: 600; color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todaySales).replace('₹', '')}</span>
-          </div>
-          ${todayAdjustments !== 0 ? `
-          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
-            <span style="color: #94a3b8;">Today Adjustment</span>
-            <span style="font-weight: 600; color: #f59e0b; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todayAdjustments).replace('₹', '')}</span>
-          </div>
-          ` : ''}
-          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
-            <span style="color: #94a3b8;">Today Expenses</span>
-            <span style="font-weight: 600; color: #ef4444; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 1.35rem; align-items: center; padding: 12px 0; border-top: 1px dashed rgba(255,255,255,0.1); margin-top: 4px;">
-            <span style="color: #f8fafc; font-weight: 500;">Today cash in Hand</span>
-            <span style="font-weight: 700; color: #f59e0b; font-family: 'JetBrains Mono', monospace; font-size: 1.5rem;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 1.25rem; align-items: center;">
-            <span style="color: #94a3b8;">Opening Balance</span>
-            <span style="font-weight: 600; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; font-size: 1.4rem;">= ${formatCurrency(oldCashHand).replace('₹', '')}</span>
-          </div>
-          
-          <div style="margin-top: 24px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 24px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 1.5rem; font-weight: 700; color: #10b981;">Closing Balance</span>
-            <span style="font-size: 1.8rem; font-weight: 800; color: #10b981; font-family: 'JetBrains Mono', monospace; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);">= ${formatCurrency(totalCashHand).replace('₹', '')}</span>
-          </div>
+        <div style="background: var(--bg-elevated); border-radius: 12px; padding: 24px; border: 1px solid var(--border); box-shadow: var(--shadow-lg);">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+            <!-- Left Side: Breakdown -->
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <div class="summary-row" style="padding-bottom: 10px; border-bottom: 2px solid var(--border);">
+                    <span class="summary-label" style="font-size: 1.1rem; font-weight: 800;">Opening Balance</span>
+                    <span class="summary-value" style="font-size: 1.1rem; font-weight: 800; font-family: 'JetBrains Mono', monospace;">${formatCurrency(oldCashHand)}</span>
+                </div>
+                
+                <div class="summary-row" style="margin-top: 10px;">
+                    <span class="summary-label" style="color: var(--primary); font-weight: 600;">(+) Today Sales</span>
+                    <span class="summary-value" style="color: var(--primary); font-weight: 600;">${formatCurrency(todaySales)}</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label" style="color: ${todayAdjustments >= 0 ? '#10b981' : '#f43f5e'};">(${todayAdjustments >= 0 ? '+' : '-'}) Adjustments</span>
+                    <span class="summary-value" style="color: ${todayAdjustments >= 0 ? '#10b981' : '#f43f5e'};">${formatCurrency(Math.abs(todayAdjustments))}</span>
+                </div>
+                
+                <div style="margin-top: 10px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                    <p style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; font-weight: 700;">(-) Today Expenses Breakdown</p>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>• Direct Shop Expenses</span><span>${formatCurrency(todayExpManual)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>• Supplier Payments</span><span>${formatCurrency(todayExpSupplier)}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>• Waiter Incentives</span><span>${formatCurrency(todayExpIncentive)}</span>
+                        </div>
+                        ${todayExpWithdrawals > 0 ? `
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>• Withdrawals / Transfers</span><span>${formatCurrency(todayExpWithdrawals)}</span>
+                        </div>` : ''}
+                        <div style="display: flex; justify-content: space-between; padding-top: 6px; border-top: 1px dotted var(--border); font-weight: 700;">
+                            <span>Total Outflow</span><span>${formatCurrency(todayExpenses)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side: Grand Total -->
+            <div style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-left: 1px solid var(--border); padding-left: 40px;">
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600;">TODAY'S CASH IN HAND</p>
+                <div style="font-size: 2.2rem; font-weight: 900; color: #10b981; margin-bottom: 30px; font-family: 'JetBrains Mono', monospace;">
+                    ${formatCurrency(todayCashHand)}
+                </div>
+                
+                <div style="width: 100%; border-top: 3px double var(--border); padding-top: 20px; text-align: center;">
+                    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px; font-weight: 700; text-transform: uppercase;">Final Closing Balance</p>
+                    <div style="font-size: 2.4rem; font-weight: 900; color: var(--primary); font-family: 'JetBrains Mono', monospace;">
+                        ${formatCurrency(closingBalance)}
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
         
         <div id="eod-summary-text" style="margin-top: 32px; font-size: 1.25rem; color: #cbd5e1; text-align: center; font-style: italic; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 24px;">
           Business Summary for <strong>${formatDate(dateStr)}</strong>
@@ -2081,18 +2117,14 @@ async function showEODReport() {
         btn.disabled = true;
 
         try {
-            // Find the report card element
             const element = document.getElementById('eod-report-card');
-            
-            // Generate canvas
             const canvas = await html2canvas(element, {
-                backgroundColor: '#1e293b', // Match the background in contentHTML
-                scale: 2, // Better quality
+                backgroundColor: '#1e293b',
+                scale: 2,
                 logging: false,
                 useCORS: true
             });
 
-            // Trigger download
             const link = document.createElement('a');
             link.download = `EOD_Report_${dateStr}.png`;
             link.href = canvas.toDataURL('image/png');

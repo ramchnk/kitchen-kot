@@ -321,8 +321,12 @@ export const DB = {
       if (t.type === 'income') {
         acc.totalIncome += numAmount;
       } else if (t.type === 'adjustment-surplus') {
+        // Stock Surplus (more items left than expected) means less cash was taken than thought
         acc.totalIncome -= numAmount;
+      } else if (t.type === 'expense' || t.type === 'purchase' || t.type === 'withdrawal') {
+        acc.totalOutflow += numAmount;
       } else {
+        // Fallback for any other outflow types
         acc.totalOutflow += numAmount;
       }
       return acc;
