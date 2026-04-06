@@ -319,14 +319,16 @@ export const DB = {
     const totals = transactions.reduce((acc, t) => {
       const numAmount = Number(t.amount || 0);
       if (t.type === 'income') {
+        // Standard income and shortages (unbilled sales) add to balance
         acc.totalIncome += numAmount;
       } else if (t.type === 'adjustment-surplus') {
         // Stock Surplus (more items left than expected) means less cash was taken than thought
+        // This is a correction that reduces the income/balance
         acc.totalIncome -= numAmount;
       } else if (t.type === 'expense' || t.type === 'purchase' || t.type === 'withdrawal') {
         acc.totalOutflow += numAmount;
       } else {
-        // Fallback for any other outflow types
+        // Any other type is treated as outflow (conservative approach)
         acc.totalOutflow += numAmount;
       }
       return acc;
@@ -389,8 +391,11 @@ export const DB = {
       const txRef = tenantDoc('walletTransactions', nextId);
       transaction.set(txRef, { ...transactionRecord, id: nextId });
 
-      // 3. Update summary
       await transaction.set(summaryRef, summary);
+
+      // CRITICAL: Invalidate cache so history reflects the new transaction immediately
+      invalidateCache('walletTransactions');
+      invalidateCache('walletSummary');
 
       return nextId;
     });
@@ -404,7 +409,11 @@ export const DB = {
     for (const t of transactions) {
       await DB.remove('walletTransactions', t.id);
     }
-    await DB.recalculateWalletTotals();
+    // Summary and history
+    if (transactions.length > 0) {
+        // Recalculate totals to ensure summary card is in sync
+        await DB.recalculateWalletTotals();
+    }
     return true;
   },
   deleteWalletTransaction: async (id) => {

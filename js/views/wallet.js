@@ -11,8 +11,13 @@ export async function renderWalletView(container) {
   const openingBalance = await DB.getAccountBalance();
   const allTransactions = await DB.getAll('walletTransactions');
   
-  // Sort oldest first to calculate running balance accurately
-  allTransactions.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  // Sort by date then createdAt to ensure logical flow and accurate running balance
+  allTransactions.sort((a, b) => {
+    const dateA = a.date || a.createdAt?.substring(0, 10);
+    const dateB = b.date || b.createdAt?.substring(0, 10);
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return new Date(a.createdAt) - new Date(b.createdAt);
+  });
 
   let currentLoopBalance = openingBalance;
   const ledger = allTransactions.map(t => {

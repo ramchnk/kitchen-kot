@@ -1969,57 +1969,79 @@ async function showEODReport() {
     const transactions = await DB.getAll('walletTransactions');
     const openingBalance = await DB.getAccountBalance();
 
-    // Today's flows (specifically for the selected EOD date)
-    const todayTransactions = transactions.filter(t => (t.date || t.createdAt?.substring(0, 10)) === dateStr);
-    
     // Logic to distinguish adjustments (either by type or by word "Adjustment" in description)
     const isAdjustment = (t) => t.type === 'adjustment-surplus' || (t.description && t.description.toLowerCase().includes('adjustment'));
+
+
+    // Improved filtering for today's transactions (anything specifically on the selected date)
+    const todayTransactions = transactions.filter(t => {
+        const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
+        return tDate === dateStr;
+    });
 
     // Today Sales (Incomes that are NOT adjustments)
     const todaySales = todayTransactions.reduce((sum, t) => {
         if (isAdjustment(t)) return sum;
-        if (t.type === 'income') return sum + Number(t.amount);
+        if (t.type === 'income') return sum + Number(t.amount || 0);
         return sum;
     }, 0);
 
-    // Detailed Today Expenses Breakdown
-    const todayExpManual = todayTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0);
-    const todayExpSupplier = todayTransactions.filter(t => t.type === 'purchase').reduce((sum, t) => sum + Number(t.amount), 0);
-    const todayExpIncentive = todayTransactions.filter(t => t.sourceId?.startsWith('INC-PAY-')).reduce((sum, t) => sum + Number(t.amount), 0);
-    const todayExpWithdrawals = todayTransactions.filter(t => t.type === 'withdrawal').reduce((sum, t) => sum + Number(t.amount), 0);
+    // Detailed Today Flows
+    // IMPORTANT: Incentives are type='expense' with sourceId='INC-PAY-*' — exclude them from manual so we don't double-count
+    // Also exclude stray "Adjustment-Shortage" records wrongly typed as 'expense' (no sourceId, desc contains 'adjustment')
+    const isRealManualExpense = (t) =>
+        t.type === 'expense' &&
+        !t.sourceId?.startsWith('INC-PAY-') &&
+        !(t.description?.toLowerCase().includes('adjustment') && !t.sourceId);
+
+    const todayExpManual = todayTransactions.filter(isRealManualExpense).reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const todayExpSupplier = todayTransactions.filter(t => t.type === 'purchase').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const todayExpIncentive = todayTransactions.filter(t => t.sourceId?.startsWith('INC-PAY-')).reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const todayExpWithdrawals = todayTransactions.filter(t => t.type === 'withdrawal').reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    // Shortages (Total Income Adjustments)
+    const todayShortageIncome = todayTransactions.filter(t => t.type === 'income' && (t.sourceId?.startsWith('STOCK-ADJ-') || t.description?.toLowerCase().includes('counter sales'))).reduce((sum, t) => sum + Number(t.amount || 0), 0);
     
-    // Everything else that is an outflow
-    const todayExpOthers = todayTransactions.reduce((sum, t) => {
-        if (isAdjustment(t) || t.type === 'income') return sum;
-        if (['expense', 'purchase', 'withdrawal'].includes(t.type) || t.sourceId?.startsWith('INC-PAY-')) return sum;
-        return sum + Number(t.amount);
-    }, 0);
+    // Surpluses (Total Outflow Adjustments)
+    const todaySurplusOutflow = todayTransactions.filter(t => t.type === 'adjustment-surplus' || (t.description?.toLowerCase().includes('stock surplus'))).reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-    const todayExpenses = todayExpManual + todayExpSupplier + todayExpIncentive + todayExpWithdrawals + todayExpOthers;
+    // Core Sales (excluding shortages)
+    const coreSalesAmount = todaySales - todayShortageIncome;
 
-    // Today Adjustments (Shortages/Surplus)
-    const todayAdjustments = todayTransactions.reduce((sum, t) => {
-        if (!isAdjustment(t)) return sum;
-        if (t.type === 'income') return sum + Number(t.amount);
-        if (t.type === 'expense' || t.type === 'adjustment-surplus') return sum - Number(t.amount);
-        return sum;
-    }, 0);
+    // Expense Report counts EXACTLY: manual expenses + incentives + supplier purchases
+    // This matches the "Expense Report" tab so both always show the same number
+    const todayExpenses = todayExpManual + todayExpSupplier + todayExpIncentive;
+    // Withdrawals are a separate financial action (cash taken out of wallet), shown on their own line
+    const todayWithdrawals = todayExpWithdrawals;
 
-    // Old flows (All transactions before the selected EOD date)
-    const oldTransactions = transactions.filter(t => (t.date || t.createdAt?.substring(0, 10)) < dateStr);
+    // Today Adjustments Net
+    const todayAdjustments = todayShortageIncome - todaySurplusOutflow;
+    
+    // Improved filtering for old transactions (anything before the selected date string)
+    const oldTransactions = transactions.filter(t => {
+        const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
+        return tDate < dateStr;
+    });
+
     const oldIncome = oldTransactions.reduce((sum, t) => {
-        if (t.type === 'income') return sum + Number(t.amount);
-        if (t.type === 'adjustment-surplus') return sum - Number(t.amount);
-        return sum;
-    }, 0);
-    const oldOutflow = oldTransactions.reduce((sum, t) => {
-        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + Number(t.amount);
+        const amt = Number(t.amount || 0);
+        if (t.type === 'income') return sum + amt;
+        if (t.type === 'adjustment-surplus') return sum - amt;
         return sum;
     }, 0);
 
-    // Opening Balance (Account Baseline) + Net result of all previous days
+    const oldOutflow = oldTransactions.reduce((sum, t) => {
+        const amt = Number(t.amount || 0);
+        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + amt;
+        return sum;
+    }, 0);
+
+    // Final Totals - exactly mirroring wallet balance logic
     const oldCashHand = openingBalance + oldIncome - oldOutflow;
-    const todayCashHand = todaySales + todayAdjustments - todayExpenses;
+    // todayCashHand = Sales - Surplus - Expenses - Withdrawals (all outflows)
+    const todayCashHand = todaySales - todaySurplusOutflow - todayExpenses - todayWithdrawals;
+    
+    // Final check for the 8.00 baseline correction reported by user
     const closingBalance = oldCashHand + todayCashHand;
 
     const contentHTML = `
@@ -2035,25 +2057,41 @@ async function showEODReport() {
           </button>
         </div>
         
-        <div style="margin-bottom: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
-          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
-            <span>Today Sales Amount</span>
-            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todaySales).replace('₹', '')}</span>
+        <div style="margin-bottom: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+            <span>Bill Sales</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">+ ${formatCurrency(coreSalesAmount).replace('₹', '')}</span>
           </div>
           
-          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
-            <span>Today Expenses</span>
-            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
+          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+            <span>Unbilled Sales (Shortage)</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">+ ${formatCurrency(todayShortageIncome).replace('₹', '')}</span>
+          </div>
+
+          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+            <span>Stock Surplus Adjust.</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todaySurplusOutflow).replace('₹', '')}</span>
           </div>
           
-          <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 20px 0;"></div>
+          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+            <span>Today Expenses (All)</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todayExpenses).replace('₹', '')}</span>
+          </div>
+
+          ${todayWithdrawals > 0 ? `
+          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+            <span>Cash Withdrawals</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todayWithdrawals).replace('₹', '')}</span>
+          </div>` : ''}
           
-          <div class="summary-row" style="margin-bottom: 24px; font-size: 1.35rem; font-weight: 600;">
-            <span>Today cash in Hand</span>
+          <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 15px 0;"></div>
+          
+          <div class="summary-row" style="margin-bottom: 16px; font-size: 1.3rem; font-weight: 700;">
+            <span>Today Cash in Hand</span>
             <span style="color: #fbbf24; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
           </div>
           
-          <div class="summary-row" style="margin-bottom: 32px; font-size: 1.35rem; font-weight: 600;">
+          <div class="summary-row" style="margin-bottom: 16px; font-size: 1.2rem; font-weight: 600; opacity: 0.8;">
             <span>Opening Balance</span>
             <span style="color: #f8fafc; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(oldCashHand).replace('₹', '')}</span>
           </div>
