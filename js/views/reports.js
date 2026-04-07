@@ -2044,6 +2044,11 @@ async function showEODReport() {
     // Final check for the 8.00 baseline correction reported by user
     const closingBalance = oldCashHand + todayCashHand;
 
+    // Total Sales = billed sales + unbilled (shortage income)
+    const todaySalesAmount = todaySales; // Already includes shortage via income type
+    // Net Adjustment = shortage inflow - surplus outflow (can be negative)
+    const todayAdjustmentNet = todayShortageIncome - todaySurplusOutflow;
+
     const contentHTML = `
       <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 40px; border-radius: 12px; font-family: 'Outfit', sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 500px; margin: 0 auto; min-height: 550px; display: flex; flex-direction: column;">
         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 30px;">
@@ -2053,58 +2058,54 @@ async function showEODReport() {
           <h2 style="font-size: 1.8rem; font-weight: 800; margin: 0; letter-spacing: -0.01em;">Kitchen Daily Report</h2>
           <div style="flex:1"></div>
           <button id="btn-export-eod-image" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; border-radius: 8px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-            <span class="material-symbols-outlined">image</span>
+            <span class="material-symbols-outlined">sync</span>
           </button>
         </div>
         
-        <div style="margin-bottom: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
-            <span>Bill Sales</span>
-            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">+ ${formatCurrency(coreSalesAmount).replace('₹', '')}</span>
+        <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Today Sales Amount</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(coreSalesAmount).replace('₹', '')}</span>
           </div>
           
-          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
-            <span>Unbilled Sales (Shortage)</span>
-            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace;">+ ${formatCurrency(todayShortageIncome).replace('₹', '')}</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Today Adjustment</span>
+            <span style="color: ${todayAdjustmentNet >= 0 ? '#f59e0b' : '#f43f5e'}; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${todayAdjustmentNet >= 0 ? '' : '-'}${formatCurrency(Math.abs(todayAdjustmentNet)).replace('₹', '')}</span>
           </div>
 
-          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
-            <span>Stock Surplus Adjust.</span>
-            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todaySurplusOutflow).replace('₹', '')}</span>
-          </div>
-          
-          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
-            <span>Today Expenses (All)</span>
-            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todayExpenses).replace('₹', '')}</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Today Expenses</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayExpenses).replace('₹', '')}</span>
           </div>
 
           ${todayWithdrawals > 0 ? `
-          <div class="summary-row" style="margin-bottom: 12px; font-size: 1.1rem; font-weight: 500; opacity: 0.9;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
             <span>Cash Withdrawals</span>
-            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace;">- ${formatCurrency(todayWithdrawals).replace('₹', '')}</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayWithdrawals).replace('₹', '')}</span>
           </div>` : ''}
           
-          <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 15px 0;"></div>
+          <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 20px 0;"></div>
           
-          <div class="summary-row" style="margin-bottom: 16px; font-size: 1.3rem; font-weight: 700;">
-            <span>Today Cash in Hand</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 1.25rem; font-weight: 700;">
+            <span>Today cash in Hand</span>
             <span style="color: #fbbf24; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
           </div>
           
-          <div class="summary-row" style="margin-bottom: 16px; font-size: 1.2rem; font-weight: 600; opacity: 0.8;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; font-size: 1.1rem; font-weight: 500; opacity: 0.7;">
             <span>Opening Balance</span>
             <span style="color: #f8fafc; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(oldCashHand).replace('₹', '')}</span>
           </div>
         </div>
 
-        <div style="margin-top: auto; background: rgba(16, 185, 129, 0.4); border: 2px solid #10b981; border-radius: 12px; padding: 22px 30px; text-align: center;">
-          <div style="display: flex; justify-content: space-between; align-items: center; color: #10b981; font-weight: 900; font-size: 1.8rem;">
-            <span style="color: #2dd4bf;">Closing Balance</span>
-            <span style="color: #2dd4bf; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(closingBalance).replace('₹', '')}</span>
+        <div style="margin-top: auto; background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; border-radius: 14px; padding: 24px 28px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; color: #2dd4bf; font-weight: 900; font-size: 1.75rem;">
+            <span>Closing Balance</span>
+            <span style="font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(closingBalance).replace('₹', '')}</span>
           </div>
         </div>
         
-        <div style="margin-top: 32px; font-size: 1rem; color: #94a3b8; text-align: center; font-style: italic;">
+        <div style="margin-top: 28px; font-size: 1rem; color: #94a3b8; text-align: center; font-style: italic;">
           Business Summary for <strong>${formatDate(dateStr)}</strong>
         </div>
       </div>
