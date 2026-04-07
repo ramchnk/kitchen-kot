@@ -2042,12 +2042,13 @@ async function showEODReport() {
     const todayCashHand = todaySales - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     
     // Final check for the 8.00 baseline correction reported by user
-    const closingBalance = oldCashHand + todayCashHand;
-
-    // Total Sales = billed sales + unbilled (shortage income)
-    const todaySalesAmount = todaySales; // Already includes shortage via income type
-    // Net Adjustment = shortage inflow - surplus outflow (can be negative)
-    const todayAdjustmentNet = todayShortageIncome - todaySurplusOutflow;
+    
+    // For display: full sales amount (includes counter/shortage adjustments)
+    const displaySalesAmount = todaySales; // = todaySales (already includes shortage income)
+    // Today Cash in Hand = full sales - surplus outflow - expenses - withdrawals
+    const displayCashInHand = displaySalesAmount - todaySurplusOutflow - todayExpenses - todayWithdrawals;
+    // Closing = Opening + Cash in Hand for today
+    const displayClosingBalance = oldCashHand + displayCashInHand;
 
     const contentHTML = `
       <div id="eod-report-card" style="background: #1e293b; color: #f8fafc; padding: 40px; border-radius: 12px; font-family: 'Outfit', sans-serif; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid rgba(255,255,255,0.1); width: 100%; max-width: 500px; margin: 0 auto; min-height: 550px; display: flex; flex-direction: column;">
@@ -2066,12 +2067,7 @@ async function showEODReport() {
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
             <span>Today Sales Amount</span>
-            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(coreSalesAmount).replace('₹', '')}</span>
-          </div>
-          
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
-            <span>Today Adjustment</span>
-            <span style="color: ${todayAdjustmentNet >= 0 ? '#f59e0b' : '#f43f5e'}; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${todayAdjustmentNet >= 0 ? '' : '-'}${formatCurrency(Math.abs(todayAdjustmentNet)).replace('₹', '')}</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(displaySalesAmount).replace('₹', '')}</span>
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
@@ -2089,7 +2085,7 @@ async function showEODReport() {
           
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; font-size: 1.25rem; font-weight: 700;">
             <span>Today cash in Hand</span>
-            <span style="color: #fbbf24; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(todayCashHand).replace('₹', '')}</span>
+            <span style="color: #fbbf24; font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(displayCashInHand).replace('₹', '')}</span>
           </div>
           
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; font-size: 1.1rem; font-weight: 500; opacity: 0.7;">
@@ -2101,7 +2097,7 @@ async function showEODReport() {
         <div style="margin-top: auto; background: rgba(16, 185, 129, 0.15); border: 2px solid #10b981; border-radius: 14px; padding: 24px 28px;">
           <div style="display: flex; justify-content: space-between; align-items: center; color: #2dd4bf; font-weight: 900; font-size: 1.75rem;">
             <span>Closing Balance</span>
-            <span style="font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(closingBalance).replace('₹', '')}</span>
+            <span style="font-family: 'JetBrains Mono', monospace;">= ${formatCurrency(displayClosingBalance).replace('₹', '')}</span>
           </div>
         </div>
         
