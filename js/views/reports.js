@@ -2010,7 +2010,20 @@ async function showEODReport() {
 
     // Expense Report counts EXACTLY: manual expenses + incentives + supplier purchases
     // This matches the "Expense Report" tab so both always show the same number
-    const todayExpenses = todayExpManual + todayExpSupplier + todayExpIncentive;
+    const todayExpensesGross = todayExpManual + todayExpSupplier + todayExpIncentive;
+
+    // "Adjustment - Excess" entries: manually added wallet entries where the description
+    // contains "adjustment - excess" (case-insensitive). These represent cash surpluses
+    // (e.g., extra cash found) that effectively reduce the net expense total.
+    const isExcessAdjustment = (t) =>
+        t.description?.toLowerCase().includes('adjustment - excess') ||
+        t.description?.toLowerCase().includes('adjustment-excess');
+    const todayExcessAdjustment = todayTransactions
+        .filter(isExcessAdjustment)
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    // Net expenses after deducting excess adjustments
+    const todayExpenses = Math.max(0, todayExpensesGross - todayExcessAdjustment);
     // Withdrawals are a separate financial action (cash taken out of wallet), shown on their own line
     const todayWithdrawals = todayExpWithdrawals;
 
@@ -2164,8 +2177,17 @@ async function showEODReport() {
                     </div>
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
                         <span>Expenses:</span>
-                        <span>${formatCurrency(todayExpenses)}</span>
+                        <span>${formatCurrency(todayExpensesGross)}</span>
                     </div>
+                    ${todayExcessAdjustment > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 4px 0; padding-left: 10px; font-size: 0.9em;">
+                        <span>(-) Adj. Excess:</span>
+                        <span>- ${formatCurrency(todayExcessAdjustment)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 4px 0; border-top: 1px dashed #000; padding-top: 4px;">
+                        <span>Net Expenses:</span>
+                        <span>${formatCurrency(todayExpenses)}</span>
+                    </div>` : ''}
                     <div style="display: flex; justify-content: space-between; margin: 15px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 10px;">
                         <span>Cash in Hand:</span>
                         <span>${formatCurrency(todayCashHand)}</span>
