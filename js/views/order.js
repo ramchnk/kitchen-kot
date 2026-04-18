@@ -787,7 +787,10 @@ async function handleKOT() {
     // Filter out liquor items as per user's request: "no need to liquor items any more in printing"
     const printableItems = deltaItems.filter(item => {
       const cat = (item.category || '').toUpperCase().trim();
-      return cat !== 'LIQUOR' && !item.isLiquor;
+      const name = (item.itemName || '').toUpperCase().trim();
+      return cat !== 'LIQUOR' && !item.isLiquor && 
+             cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+             name !== 'AC-CHARGES' && name !== 'AC CHARGES';
     });
 
     const kitchenItems = printableItems.filter(item => !isCounterItem(item));
@@ -890,7 +893,10 @@ async function handleBill() {
       // Filter out liquor items from KOT as requested
       const printableItems = deltaItems.filter(item => {
         const cat = (item.category || '').toUpperCase().trim();
-        return cat !== 'LIQUOR' && !item.isLiquor;
+        const name = (item.itemName || '').toUpperCase().trim();
+        return cat !== 'LIQUOR' && !item.isLiquor && 
+               cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+               name !== 'AC-CHARGES' && name !== 'AC CHARGES';
       });
 
       const kitchenItems = printableItems.filter(item => !isCounterItem(item));
@@ -1016,7 +1022,10 @@ async function handleSaveOrder() {
       // Filter out liquor items from KOT as requested
       const printableItems = deltaItems.filter(item => {
         const cat = (item.category || '').toUpperCase().trim();
-        return cat !== 'LIQUOR' && !item.isLiquor;
+        const name = (item.itemName || '').toUpperCase().trim();
+        return cat !== 'LIQUOR' && !item.isLiquor && 
+               cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+               name !== 'AC-CHARGES' && name !== 'AC CHARGES';
       });
 
       const kitchenItems = printableItems.filter(item => !isCounterItem(item));
@@ -1363,7 +1372,10 @@ async function showCompletedBills(initialDate = todayISO()) {
 
           const printableItems = (order.items || []).filter(item => {
             const cat = (item.category || '').toUpperCase().trim();
-            return cat !== 'LIQUOR' && !item.isLiquor;
+            const name = (item.itemName || '').toUpperCase().trim();
+            return cat !== 'LIQUOR' && !item.isLiquor && 
+                   cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+                   name !== 'AC-CHARGES' && name !== 'AC CHARGES';
           });
 
           const kitchenItems = printableItems.filter(item => !isCounterItem(item));

@@ -148,6 +148,11 @@ async function generateReports(container) {
     }
   });
 
+  // If some products have no adjustments, go back far enough to catch initial purchases
+  if (needsFullHistory && earliestAnchorDate > '2026-03-01') {
+    earliestAnchorDate = '2026-03-01';
+  }
+
   // 4. Targeted Database Reads: Load all billed orders and filter locally to avoid Index requirements
   const allBilled = await DB.getByIndex('orders', 'status', 'billed');
   
@@ -594,7 +599,9 @@ function generateIncentiveReport(container, orders, itemMap, supplierMap, dateSt
 
     order.items.forEach(item => {
       const category = (item.category || itemMap[item.itemId]?.category || '').toUpperCase().trim();
-      if (category === 'LIQUOR') return; // no need to show liquor
+      const name = (item.itemName || '').toUpperCase().trim();
+      if (category === 'LIQUOR' || category === 'AC-CHARGES' || category === 'AC CHARGES' || 
+          name === 'AC-CHARGES' || name === 'AC CHARGES') return; // no need to show liquor or AC charges
 
       const incentivePercent = item.incentivePercent || itemMap[item.itemId]?.incentivePercent || 0;
       const incentiveAmt = (item.amount * incentivePercent) / 100;
@@ -1255,7 +1262,20 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       // If NO past adjustment exists, we use live stock minus today's changes
       openingStock = (prod.currentStock || 0) - purchasedToday + sold;
     } else {
-      openingStock = 0; 
+      // No past adjustment found - calculate from all historical purchases/sales before this date
+      const pastPurchases = allPurchases
+        .filter(p => p.productId === prod.id && p.date < dateStr)
+        .reduce((s, p) => s + (p.quantity || 0), 0);
+      
+      const pastSales = allOrders.filter(o => {
+        const d = (o.date || (o.billedAt || '').substring(0, 10));
+        return d < dateStr;
+      }).reduce((sum, o) => {
+        const item = (o.items || []).find(i => i.itemId === prod.id);
+        return sum + (item ? item.quantity : 0);
+      }, 0);
+
+      openingStock = pastPurchases - pastSales;
     }
 
     // Expected Closing = Opening + Purchased Today - Sold

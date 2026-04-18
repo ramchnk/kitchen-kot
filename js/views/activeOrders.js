@@ -185,8 +185,16 @@ export async function renderActiveOrdersView(container) {
       const supplierName = supplierMap[order.supplierId] || '';
       const tableName = tableMap[order.tableId] || 'N/A';
 
-      const kitchenItems = order.items.filter(item => !isCounterItem(item));
-      const counterItems = order.items.filter(item => isCounterItem(item));
+      const printableItems = order.items.filter(item => {
+        const cat = (item.category || '').toUpperCase().trim();
+        const name = (item.itemName || '').toUpperCase().trim();
+        return cat !== 'LIQUOR' && !item.isLiquor && 
+               cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+               name !== 'AC-CHARGES' && name !== 'AC CHARGES';
+      });
+
+      const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+      const counterItems = printableItems.filter(item => isCounterItem(item));
 
       if (kitchenItems.length > 0) {
         const kitchenOrder = { ...order, items: kitchenItems };
