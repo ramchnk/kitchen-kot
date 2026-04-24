@@ -5,6 +5,7 @@ import { showToast, showModal, closeModal } from '../utils.js';
 export async function renderTablesView(container) {
   const tables = await DB.getAll('tables');
   const isAdmin = Auth.isAdmin();
+  const account = Auth.getCurrentAccount();
 
   container.innerHTML = `
     <div class="view-header">
@@ -15,11 +16,17 @@ export async function renderTablesView(container) {
           <p class="view-subtitle">${tables.length} table(s)</p>
         </div>
       </div>
-      ${isAdmin ? `
-      <button class="btn btn-primary" id="btn-add-table">
-        <span class="material-symbols-outlined">add</span> Add Table
-      </button>
-      ` : ''}
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="form-check" style="background:var(--bg-elevated);padding:8px 16px;border-radius:8px;border:1px solid var(--border-color)">
+          <input type="checkbox" id="chk-enable-tables" ${account?.isTableEnabled !== false ? 'checked' : ''}>
+          <label for="chk-enable-tables" style="font-weight:600">Enable Table Service</label>
+        </div>
+        ${isAdmin ? `
+        <button class="btn btn-primary" id="btn-add-table">
+          <span class="material-symbols-outlined">add</span> Add Table
+        </button>
+        ` : ''}
+      </div>
     </div>
 
     <div class="stats-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
@@ -52,6 +59,23 @@ export async function renderTablesView(container) {
   `;
 
   document.getElementById('btn-add-table')?.addEventListener('click', () => showTableForm(null, container));
+
+  // Handle global Table Service toggle
+  document.getElementById('chk-enable-tables')?.addEventListener('change', async (e) => {
+    const enabled = e.target.checked;
+    try {
+      const account = Auth.getCurrentAccount();
+      account.isTableEnabled = enabled;
+      await DB.updateAccount(account); // Need to ensure this helper exists
+      showToast(`Table service ${enabled ? 'enabled' : 'disabled'}`, 'success');
+      // Refresh to update local Auth state
+      renderTablesView(container);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to update settings', 'error');
+      e.target.checked = !enabled;
+    }
+  });
 
   container.querySelectorAll('.btn-edit-table').forEach(btn => {
     btn.addEventListener('click', async () => {

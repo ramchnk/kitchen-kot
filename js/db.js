@@ -297,6 +297,10 @@ export const DB = {
   clearStore,
   getNextOrderNumber,
   seedDemoData,
+  updateAccount: async (accountData) => {
+    const accountRef = doc(firestore, 'accounts', _accountId);
+    await setDoc(accountRef, accountData, { merge: true });
+  },
   getWalletSummary: async () => {
     const snap = await getDoc(tenantDoc('walletSummary', 'latest'));
     if (snap.exists()) return snap.data();

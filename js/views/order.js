@@ -88,7 +88,7 @@ export async function renderOrderView(container) {
 
         <!-- Table & Waiter Selection -->
         <div class="order-meta-row">
-          <div class="form-group" style="margin-bottom:0">
+          <div class="form-group" id="group-table-selection" style="margin-bottom:0; ${account?.isTableEnabled === false ? 'display:none' : ''}">
             <label class="form-label">Table</label>
             <div class="search-container">
               <span class="material-symbols-outlined">table_restaurant</span>
@@ -160,7 +160,7 @@ export async function renderOrderView(container) {
           <h3>Order Summary</h3>
         </div>
         <div class="order-summary-body">
-          <div class="summary-row">
+          <div class="summary-row" id="summary-row-table" style="${account?.isTableEnabled === false ? 'display:none' : ''}">
             <span class="summary-label">Table</span>
             <span class="summary-value" id="summary-table">—</span>
           </div>
@@ -200,10 +200,30 @@ export async function renderOrderView(container) {
   setupOrderEvents();
   setupOrderShortcuts();
 
-  // Auto-focus table search (first step in workflow)
-  setTimeout(() => {
-    document.getElementById('table-search')?.focus();
-  }, 200);
+  // Handle isTableEnabled == false logic
+  if (account?.isTableEnabled === false && tables.length > 0) {
+    const defaultTable = tables[0];
+    orderState.tableId = defaultTable.id;
+    const tableEl = document.getElementById('summary-table');
+    if (tableEl) tableEl.textContent = defaultTable.name;
+    const tableInput = document.getElementById('table-id-input');
+    if (tableInput) tableInput.value = defaultTable.id;
+    const tableSearch = document.getElementById('table-search');
+    if (tableSearch) tableSearch.value = defaultTable.name;
+
+    // Load any existing order for this auto-selected table
+    loadExistingOrderForTable(defaultTable.id);
+
+    // Focus Waiter search instead
+    setTimeout(() => {
+      document.getElementById('supplier-search')?.focus();
+    }, 200);
+  } else {
+    // Standard behavior: focus Table search
+    setTimeout(() => {
+      document.getElementById('table-search')?.focus();
+    }, 200);
+  }
 }
 
 function setupOrderEvents() {
@@ -1116,7 +1136,20 @@ function resetOrderAndUI() {
   renderOrderItems();
   updateSummary();
   updateOrderTitle();
-  document.getElementById('table-search')?.focus();
+
+  const account = Auth.getCurrentAccount();
+  if (account?.isTableEnabled === false && tables.length > 0) {
+    const defaultTable = tables[0];
+    orderState.tableId = defaultTable.id;
+    document.getElementById('summary-table').textContent = defaultTable.name;
+    document.getElementById('table-id-input').value = defaultTable.id;
+    document.getElementById('table-search').value = defaultTable.name;
+    
+    loadExistingOrderForTable(defaultTable.id);
+    document.getElementById('supplier-search')?.focus();
+  } else {
+    document.getElementById('table-search')?.focus();
+  }
 
   // Notify listeners to refresh reports/stats (like sidebar sales)
   window.dispatchEvent(new CustomEvent('orders-updated'));
