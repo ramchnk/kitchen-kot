@@ -34,7 +34,7 @@ function counterDoc(counterName) {
 
 // Local cache to deeply optimize repetitive Firestore reads and prevent Quota issues
 const localCache = {};
-const CACHE_TTL_MS = 30000; // Cache valid for 30 seconds
+const CACHE_TTL_MS = 5 * 60 * 1000; // Cache valid for 5 minutes
 
 function invalidateCache(storeName) {
   // Delete direct cache

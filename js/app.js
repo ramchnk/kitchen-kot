@@ -152,6 +152,9 @@ function updateSidebarUserInfo(user, account) {
     }
 }
 // ---- Live Sales Stats in Sidebar ----
+// One-time flag: once we confirm no legacy orders (missing 'date') exist for today, skip the full scan
+let _noLegacyOrdersForSidebar = false;
+
 async function updateSidebarSales() {
     const liquorEl = document.getElementById('sidebar-liquor-sales');
     const kitchenEl = document.getElementById('sidebar-kitchen-sales');
@@ -159,7 +162,7 @@ async function updateSidebarSales() {
 
     try {
         const today = todayISO();
-        // OPTIMIZATION: Use getFiltered to fetch ONLY today's billed orders
+        // OPTIMIZATION: Fetch ONLY today's billed orders (targeted query)
         let todayOrders = await DB.getFiltered('orders', {
             where: [
                 ['status', '==', 'billed'],
@@ -167,15 +170,18 @@ async function updateSidebarSales() {
             ]
         });
 
-        // HYBRID FALLBACK: Include orders where 'date' field is missing but 'billedAt' matches today.
-        // This ensures sidebar sales match the Reports view.
-        const allBilled = await DB.getByIndex('orders', 'status', 'billed');
-        const missingDateOrders = allBilled.filter(o =>
-            !o.date && o.billedAt && o.billedAt.startsWith(today)
-        );
-
-        if (missingDateOrders.length > 0) {
-            todayOrders = [...todayOrders, ...missingDateOrders];
+        // HYBRID FALLBACK: Only check once per session for legacy orders missing the 'date' field.
+        // After the first check finds none, we skip this expensive full-collection scan permanently.
+        if (!_noLegacyOrdersForSidebar) {
+            const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+            const missingDateOrders = allBilled.filter(o =>
+                !o.date && o.billedAt && o.billedAt.startsWith(today)
+            );
+            if (missingDateOrders.length === 0) {
+                _noLegacyOrdersForSidebar = true; // No legacy orders — skip this scan in future
+            } else {
+                todayOrders = [...todayOrders, ...missingDateOrders];
+            }
         }
 
         let liquorTotal = 0;
@@ -200,8 +206,7 @@ async function updateSidebarSales() {
             });
         });
 
-        // We could add a counterTotal UI element here too if needed, but for now let's just fix kitchenTotal accuracy
-        // Include counter items (Cool Drinks, Cigarettes) in the kitchenTotal for consistency with the new grouping
+        // Include counter items in kitchenTotal for consistency with Reports view grouping
         if (liquorEl) liquorEl.textContent = formatCurrency(liquorTotal);
         if (kitchenEl) kitchenEl.textContent = formatCurrency(kitchenTotal + counterTotal);
     } catch (err) {
@@ -210,8 +215,9 @@ async function updateSidebarSales() {
 }
 
 // Make it globally accessible for view modules
+// Sidebar totals update only on page load/login — no live event listeners needed.
+// User can refresh the page to see updated totals. This eliminates all event-driven Firestore reads.
 window.updateSidebarSales = updateSidebarSales;
-window.addEventListener('orders-updated', updateSidebarSales);
 
 // ---- Show Auth Page / Show App ----
 function showAuthPage() {

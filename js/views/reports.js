@@ -9,6 +9,26 @@ let masterIngredients = [];
 let masterRecipes = [];
 let masterGrocerySuppliers = [];
 
+// ---- Session-level billed orders cache ----
+// Prevents re-fetching ALL billed orders on every date change, Generate click, or stock save.
+// Cache is invalidated whenever a new order is created or updated.
+let _billedOrdersCache = null;
+let _billedOrdersCacheTime = 0;
+const BILLED_ORDERS_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function _getBilledOrders() {
+  const now = Date.now();
+  if (_billedOrdersCache !== null && (now - _billedOrdersCacheTime < BILLED_ORDERS_TTL)) {
+    return _billedOrdersCache;
+  }
+  _billedOrdersCache = await DB.getByIndex('orders', 'status', 'billed');
+  _billedOrdersCacheTime = now;
+  return _billedOrdersCache;
+}
+
+// Invalidate billed orders cache whenever an order is created, billed, or cancelled
+window.addEventListener('orders-updated', () => { _billedOrdersCache = null; });
+
 export async function renderReportsView(container) {
   container.innerHTML = `
     <div class="view-header">
@@ -153,8 +173,8 @@ async function generateReports(container) {
     earliestAnchorDate = '2026-03-01';
   }
 
-  // 4. Targeted Database Reads: Load all billed orders and filter locally to avoid Index requirements
-  const allBilled = await DB.getByIndex('orders', 'status', 'billed');
+  // 4. Fetch all billed orders using session cache (avoids full-collection scan on every date change)
+  const allBilled = await _getBilledOrders();
   
   const rangeOrders = allBilled.filter(o => {
     const d = (o.date || (o.billedAt || '').substring(0, 10));
@@ -1837,7 +1857,7 @@ async function renderCustomRangeData(itemMap, supplierMap) {
 
   // Fallback for old orders
   if (rangeOrders.length === 0) {
-      const allOrders = await DB.getByIndex('orders', 'status', 'billed');
+      const allOrders = await _getBilledOrders();
       rangeOrders = allOrders.filter(o => {
           const d = (o.date || (o.billedAt || '').substring(0, 10));
           return d >= startStr && d <= endStr;
