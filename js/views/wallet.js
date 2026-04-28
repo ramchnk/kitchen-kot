@@ -98,8 +98,13 @@ export async function renderWalletView(container) {
       <div class="card-header" style="flex-wrap: wrap; gap: 15px;">
         <h3 class="card-title">Transaction History</h3>
         <div style="display:flex; gap:10px; align-items:center;">
-          <div class="form-group" style="margin:0; width:150px">
-            <input type="date" class="form-input" id="filter-wallet-date" title="Filter by Date">
+          <span style="font-size: 0.85rem; color: var(--text-muted)">From</span>
+          <div class="form-group" style="margin:0; width:130px">
+            <input type="date" class="form-input" id="filter-wallet-from" title="From Date">
+          </div>
+          <span style="font-size: 0.85rem; color: var(--text-muted)">To</span>
+          <div class="form-group" style="margin:0; width:130px">
+            <input type="date" class="form-input" id="filter-wallet-to" title="To Date">
           </div>
           <div class="form-group" style="margin:0; width:150px">
             <select class="form-select" id="filter-wallet-type">
@@ -257,13 +262,15 @@ function renderTransactionRows(transactions, initialOpeningBalance) {
 // Let's find where the table head is.
 
 function attachWalletFilters(container, ledger, openingBalance) {
-  const dateInput = document.getElementById('filter-wallet-date');
+  const fromInput = document.getElementById('filter-wallet-from');
+  const toInput = document.getElementById('filter-wallet-to');
   const typeSelect = document.getElementById('filter-wallet-type');
   const clearBtn = document.getElementById('btn-clear-wallet-filters');
   const tbody = document.getElementById('wallet-transactions-body');
 
   const updateFilters = async () => {
-    const dateVal = dateInput.value;
+    const fromVal = fromInput.value;
+    const toVal = toInput.value;
     const typeVal = typeSelect.value;
 
     // Immediately show loading
@@ -271,10 +278,17 @@ function attachWalletFilters(container, ledger, openingBalance) {
 
     let filtered = [...ledger];
 
-    if (dateVal) {
+    if (fromVal) {
       filtered = filtered.filter(t => {
         const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
-        return itemDate === dateVal;
+        return itemDate >= fromVal;
+      });
+    }
+
+    if (toVal) {
+      filtered = filtered.filter(t => {
+        const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
+        return itemDate <= toVal;
       });
     }
 
@@ -308,10 +322,12 @@ function attachWalletFilters(container, ledger, openingBalance) {
      }
    };
 
-  dateInput?.addEventListener('change', updateFilters);
+  fromInput?.addEventListener('change', updateFilters);
+  toInput?.addEventListener('change', updateFilters);
   typeSelect?.addEventListener('change', updateFilters);
   clearBtn?.addEventListener('click', () => {
-    dateInput.value = '';
+    fromInput.value = '';
+    toInput.value = '';
     typeSelect.value = 'all';
     updateFilters();
   });
