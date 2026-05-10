@@ -17,6 +17,21 @@ let state = {
     isLiquorEnabled: false
 };
 
+const PRIORITY_ITEMS = [
+    'cup',
+    'Spl Fruits Salad',
+    'Water Kinley 1Ltr',
+    'Water Aquafina 500ml',
+    'Penut Masala',
+    'Onion Pakkoda',
+    'Sundal',
+    'Boil Egg',
+    'Ver Kadalai',
+    'Chicken Uppukari',
+    'Half Boil',
+    'Egg Poriyal'
+].map(i => i.toLowerCase());
+
 // --- DOM Elements ---
 const loader = document.getElementById('loader');
 const itemsGrid = document.getElementById('items-grid');
@@ -75,6 +90,17 @@ async function loadInitialData() {
                 console.error('Liquor load error:', e);
             }
         }
+
+        // Sort items with priority items first
+        allItems.sort((a, b) => {
+            const aIdx = PRIORITY_ITEMS.indexOf(a.name.toLowerCase());
+            const bIdx = PRIORITY_ITEMS.indexOf(b.name.toLowerCase());
+            
+            if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+            if (aIdx !== -1) return -1;
+            if (bIdx !== -1) return 1;
+            return a.name.localeCompare(b.name);
+        });
 
         state.items = allItems;
         state.tables = tables.filter(t => t.active);

@@ -3,7 +3,7 @@ import { DB } from '../db.js';
 import { Auth } from '../auth.js';
 import { formatCurrency, showToast, showModal, closeModal } from '../utils.js';
 
-const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CUP'];
 function isStockTracked(category) {
   return DIRECT_PURCHASE_CATEGORIES.includes((category || '').toUpperCase());
 }

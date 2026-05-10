@@ -3,7 +3,7 @@ import { Auth } from '../auth.js';
 import { formatCurrency, formatDate, showToast, showModal, closeModal, todayISO } from '../utils.js';
 
 // Categories that are direct-purchase products (no ingredients)
-const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE'];
+const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CUP'];
 
 let purchaseItems = [];
 let allIngredients = [];

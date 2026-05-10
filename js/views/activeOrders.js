@@ -118,7 +118,7 @@ export async function renderActiveOrdersView(container) {
         await DB.update('orders', order);
 
         // Update ingredient/product consumption
-        const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS'];
+        const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS', 'CUP'];
         for (const orderItem of order.items) {
           const item = await DB.getById('items', orderItem.itemId);
           if (item && DIRECT_PURCHASE_CATEGORIES.includes((item.category || '').toUpperCase())) {

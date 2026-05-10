@@ -1209,7 +1209,7 @@ function generatePurchaseReport(container, purchases, ingredientMap, itemMap, su
 // ===== Product Stock Report (Cool Drinks & Cigarettes) =====
 function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, allStockAdjustments = [], allOrders = []) {
   const tab = document.getElementById('tab-product-stock');
-  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS'];
+  const DIRECT_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS', 'CUP'];
 
   const products = allItems.filter(i => DIRECT_CATEGORIES.includes((i.category || '').toUpperCase().trim()));
 
@@ -1366,7 +1366,7 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
     ${Object.entries(categories).map(([cat, items]) => `
       <div class="card mb-2">
         <div class="card-header">
-          <span class="card-title">${cat.toUpperCase().includes('COOL') ? '🥤' : '🚬'} ${cat} — ${formatDate(dateStr)}</span>
+          <span class="card-title">${cat.toUpperCase().includes('COOL') ? '🥤' : (cat.toUpperCase().includes('CUP') ? '☕' : '🚬')} ${cat} — ${formatDate(dateStr)}</span>
         </div>
         <table class="data-table">
           <thead>
