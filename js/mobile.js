@@ -18,6 +18,19 @@ let state = {
 };
 
 const PRIORITY_ITEMS = [
+    'CUP',
+    'Spl Fruits Salad',
+    'WATER AQUAFINA 1LIT',
+    'WATER AQUAFINA 500ML',
+    'PENUT MASALA',
+    'ONION PAKKODA',
+    'SUNDAL',
+    'BOIL EGG',
+    'AC CHARGE',
+    'VER KADALAI',
+    'CHICKEN UPPKARI',
+    'HALF BOIL',
+    'EGG PORIYAL',
     'Kings Cig',
     'Gold Filter Cig',
     '7up 200ml',
@@ -36,7 +49,6 @@ const PRIORITY_ITEMS = [
     'Egg Pakkoda',
     'Tandoori Chicken (Half)',
     'Tandoori rotti',
-    'Egg Poriyal',
     'Naan',
     'Chicken 65 [Bone Less]',
     'French Fries',
