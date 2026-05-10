@@ -1,0 +1,32 @@
+import{s as o,f as u,A as g,D as l,L as E,i as w,p as T,g as $,c as S}from"./utils-B_lqVZTa.js";let t={items:[],categories:[],tables:[],waiters:[],cart:[],selectedCategory:"all",searchQuery:"",selectedTable:"",selectedWaiter:"",isLiquorEnabled:!1};const P=document.getElementById("loader"),p=document.getElementById("items-grid"),C=document.getElementById("category-chips"),k=document.getElementById("item-search"),v=document.getElementById("cart-bar"),N=document.getElementById("cart-count"),Q=document.getElementById("cart-total"),m=document.getElementById("cart-overlay"),H=document.getElementById("close-cart"),M=document.getElementById("cart-items-list"),O=document.getElementById("overlay-total"),d=document.getElementById("btn-send-kot"),q=document.getElementById("select-table"),B=document.getElementById("select-waiter"),x=document.getElementById("user-name");async function W(){g.onAuthChange(async e=>{if(!e){window.location.href="/index.html";return}l.setAccountId(g.getAccountId());const a=g.getCurrentAccount();t.isLiquorEnabled=(a==null?void 0:a.isLiquorEnabled)||!1,x.textContent=e.name,await D(),A(),f(),K(),P.classList.add("hidden")})}async function D(){try{const[e,a,n]=await Promise.all([l.getAll("items"),l.getAll("tables"),l.getAll("suppliers")]);let s=e.filter(r=>r.active);if(t.isLiquorEnabled)try{await E.ensureReady();const r=E.getProducts();s=[...s,...r]}catch(r){console.error("Liquor load error:",r)}t.items=s,t.tables=a.filter(r=>r.active),t.waiters=n.filter(r=>r.active);const c=new Set(s.map(r=>r.category));t.categories=["all",...Array.from(c)].filter(Boolean)}catch(e){console.error("Data load error:",e),o("Failed to load menu data","error")}}function A(){C.innerHTML=t.categories.map(e=>`
+        <div class="chip ${t.selectedCategory===e?"active":""}" 
+             data-category="${e}">
+            ${e==="all"?"All Items":e}
+        </div>
+    `).join(""),C.querySelectorAll(".chip").forEach(e=>{e.addEventListener("click",()=>{t.selectedCategory=e.dataset.category,A(),f()})})}function f(){const e=t.items.filter(a=>{const n=t.selectedCategory==="all"||a.category===t.selectedCategory,s=a.name.toLowerCase().includes(t.searchQuery.toLowerCase())||a.code&&a.code.toLowerCase().includes(t.searchQuery.toLowerCase());return n&&s});if(e.length===0){p.innerHTML=`
+            <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-muted)">
+                <span class="material-symbols-outlined" style="font-size: 48px; opacity: 0.3">search_off</span>
+                <p>No items found</p>
+            </div>
+        `;return}p.innerHTML=e.map(a=>`
+        <div class="m-item-card" data-id="${a.id}">
+            <div class="m-item-name">${a.name}</div>
+            <div class="m-item-price">${u(a.sellingPrice)}</div>
+            ${a.isLiquor?'<div style="font-size: 0.6rem; color: #7c3aed">LIQUOR</div>':""}
+            <div class="m-add-btn">
+                <span class="material-symbols-outlined">add</span>
+            </div>
+        </div>
+    `).join(""),p.querySelectorAll(".m-item-card").forEach(a=>{a.addEventListener("click",()=>{const n=a.dataset.id,s=t.items.find(c=>String(c.id)===n);j(s)})})}function K(){q.innerHTML='<option value="">Select Table</option>'+t.tables.map(e=>`<option value="${e.id}">${e.name}</option>`).join(""),B.innerHTML='<option value="">Select Waiter</option>'+t.waiters.map(e=>`<option value="${e.id}">${e.name}</option>`).join(""),q.addEventListener("change",e=>t.selectedTable=e.target.value),B.addEventListener("change",e=>t.selectedWaiter=e.target.value)}function j(e){const a=t.cart.find(n=>n.itemId===e.id);a?(a.quantity+=1,a.amount=a.quantity*a.price):t.cart.push({itemId:e.id,itemName:e.name,category:e.category,quantity:1,price:e.sellingPrice,amount:e.sellingPrice,isLiquor:e.isLiquor||!1,incentivePercent:e.incentivePercent||0,kotPrintedQty:0}),L(),o(`Added ${e.name}`,"success",1e3)}function L(){const e=t.cart.reduce((n,s)=>n+s.quantity,0),a=t.cart.reduce((n,s)=>n+s.amount,0);N.textContent=e,Q.textContent=u(a),O.textContent=u(a),e>0?v.classList.remove("hidden"):(v.classList.add("hidden"),m.classList.remove("visible")),z()}function z(){M.innerHTML=t.cart.map((e,a)=>`
+        <div class="cart-item">
+            <div style="flex: 1">
+                <div style="font-weight: 600">${e.itemName}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted)">${u(e.price)}</div>
+            </div>
+            <div class="cart-item-qty">
+                <span class="qty-btn" onclick="window.updateQty(${a}, -1)">−</span>
+                <span style="font-weight: 700; min-width: 20px; text-align: center">${e.quantity}</span>
+                <span class="qty-btn" onclick="window.updateQty(${a}, 1)">+</span>
+            </div>
+        </div>
+    `).join("")}window.updateQty=(e,a)=>{t.cart[e].quantity+=a,t.cart[e].quantity<=0?t.cart.splice(e,1):t.cart[e].amount=t.cart[e].quantity*t.cart[e].price,L()};k.addEventListener("input",e=>{t.searchQuery=e.target.value,f()});v.addEventListener("click",()=>{m.classList.add("visible")});H.addEventListener("click",()=>{m.classList.remove("visible")});d.addEventListener("click",async()=>{var e,a;if(t.cart.length!==0){if(!t.selectedTable){o("Please select a Table","warning");return}if(!t.selectedWaiter){o("Please select a Waiter","warning");return}d.disabled=!0,d.innerHTML='<span class="material-symbols-outlined spinning">sync</span> SENDING...';try{const n=await l.getNextOrderNumber(),s=new Date().toISOString(),c={orderNumber:n,supplierId:parseInt(t.selectedWaiter),tableId:parseInt(t.selectedTable),items:t.cart.map(i=>({...i,kotPrintedQty:i.quantity})),subTotal:t.cart.reduce((i,y)=>i+y.amount,0),acCharge:0,totalAmount:t.cart.reduce((i,y)=>i+y.amount,0),status:"open",type:"kot",createdAt:s,billedAt:null,date:s.split("T")[0]};await l.add("orders",c);const r=((e=t.waiters.find(i=>String(i.id)===t.selectedWaiter))==null?void 0:e.name)||"",b=((a=t.tables.find(i=>String(i.id)===t.selectedTable))==null?void 0:a.name)||"",h=c.items.filter(i=>!w(i)),I=c.items.filter(i=>w(i));h.length>0&&T($({...c,items:h},r,b)),I.length>0&&setTimeout(()=>{T(S(c,r,b,I))},1e3),o("KOT Sent successfully!","success"),t.cart=[],L(),m.classList.remove("visible")}catch(n){console.error("KOT error:",n),o("Failed to send KOT: "+n.message,"error")}finally{d.disabled=!1,d.innerHTML='<span class="material-symbols-outlined">print</span> SEND KOT'}}});W();
