@@ -2,15 +2,31 @@ import { DB } from '../db.js';
 import { Auth } from '../auth.js';
 import { formatCurrency, formatDateTime, showToast, showModal, closeModal, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, isCounterItem } from '../utils.js';
 
-export async function renderActiveOrdersView(container) {
-  const orders = (await DB.getByIndex('orders', 'status', 'open'))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+let _unsubscribe = null;
 
+export async function renderActiveOrdersView(container) {
+  if (_unsubscribe) _unsubscribe();
+
+  // Load static data first
   const suppliers = await DB.getAll('suppliers');
   const tables = await DB.getAll('tables');
   const supplierMap = Object.fromEntries(suppliers.map(s => [s.id, s.name]));
   const tableMap = Object.fromEntries(tables.map(t => [t.id, t.name]));
 
+  // Setup real-time listener
+  _unsubscribe = DB.onActiveOrdersChange((orders) => {
+    updateTable(container, orders, supplierMap, tableMap);
+  });
+}
+
+export function destroyActiveOrdersView() {
+  if (_unsubscribe) {
+    _unsubscribe();
+    _unsubscribe = null;
+  }
+}
+
+function updateTable(container, orders, supplierMap, tableMap) {
   container.innerHTML = `
     <div class="view-header">
       <div class="view-header-left">
@@ -20,9 +36,6 @@ export async function renderActiveOrdersView(container) {
           <p class="view-subtitle">${orders.length} open order(s)</p>
         </div>
       </div>
-      <button class="btn btn-secondary" id="btn-refresh-active">
-        <span class="material-symbols-outlined">refresh</span> Refresh
-      </button>
     </div>
 
     ${orders.length === 0 ? `
@@ -81,9 +94,10 @@ export async function renderActiveOrdersView(container) {
     `}
   `;
 
-  // Refresh
-  document.getElementById('btn-refresh-active')?.addEventListener('click', () => renderActiveOrdersView(container));
+  setupEventListeners(container, supplierMap, tableMap);
+}
 
+function setupEventListeners(container, supplierMap, tableMap) {
   // Convert to bill
   container.querySelectorAll('.btn-convert-bill').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -93,7 +107,6 @@ export async function renderActiveOrdersView(container) {
       const order = await DB.getById('orders', id);
       if (!order || order.status !== 'open') {
         showToast('Order not found or already billed', 'error');
-        renderActiveOrdersView(container);
         return;
       }
 
@@ -122,11 +135,9 @@ export async function renderActiveOrdersView(container) {
         for (const orderItem of order.items) {
           const item = await DB.getById('items', orderItem.itemId);
           if (item && DIRECT_PURCHASE_CATEGORIES.includes((item.category || '').toUpperCase())) {
-            // Deduct product stock directly
             item.currentStock = Math.max(0, (item.currentStock || 0) - orderItem.quantity);
             await DB.update('items', item);
           } else {
-            // Deduct ingredient stock via recipes
             const recipes = await DB.getByIndex('itemIngredients', 'itemId', orderItem.itemId);
             for (const recipe of recipes) {
               const ingredient = await DB.getById('ingredients', recipe.ingredientId);
@@ -139,7 +150,7 @@ export async function renderActiveOrdersView(container) {
           }
         }
 
-        // Record Wallet Transaction (excluding LIQUOR items)
+        // Record Wallet Transaction
         const isLiquor = (item) => (item.category || '').toUpperCase().trim() === 'LIQUOR' || item.isLiquor;
         const nonLiquorSubtotal = order.items
           .filter(item => !isLiquor(item))
@@ -153,14 +164,12 @@ export async function renderActiveOrdersView(container) {
           await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
         }
 
-        // Print bill
         const supplier = order.supplierId ? supplierMap[order.supplierId] : '';
         const table = order.tableId ? tableMap[order.tableId] : 'N/A';
         const printHTML = generateBillPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
         printContent(printHTML);
 
         showToast(`Bill #${order.orderNumber} successfully generated!`, 'success');
-        renderActiveOrdersView(container);
       } catch (err) {
         console.error(err);
         showToast('Error billing order: ' + err.message, 'error');
@@ -202,7 +211,6 @@ export async function renderActiveOrdersView(container) {
       }
 
       if (counterItems.length > 0) {
-        // Delay slighty if both are printed to avoid print dialog overlap in some browsers
         if (kitchenItems.length > 0) {
           setTimeout(() => {
             printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
@@ -258,7 +266,20 @@ export async function renderActiveOrdersView(container) {
             </tr>
           </tfoot>
         </table>
-      `);
+      `, {
+        footer: `
+          <button class="btn btn-ghost" onclick="closeModal()">Close</button>
+          <button class="btn btn-success" id="btn-modal-bill" data-id="${order.id}">
+            <span class="material-symbols-outlined">receipt</span> Generate Bill
+          </button>
+        `
+      });
+
+      document.getElementById('btn-modal-bill')?.addEventListener('click', () => {
+        closeModal();
+        const billBtn = container.querySelector(`.btn-convert-bill[data-id="${order.id}"]`);
+        if (billBtn) billBtn.click();
+      });
     });
   });
 
@@ -273,8 +294,8 @@ export async function renderActiveOrdersView(container) {
         order.status = 'cancelled';
         await DB.update('orders', order);
         showToast(`Order #${order.orderNumber} cancelled`, 'warning');
-        renderActiveOrdersView(container);
       }
     });
   });
 }
+

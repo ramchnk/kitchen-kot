@@ -8,7 +8,7 @@ import { showToast, formatCurrency, todayISO, closeModal } from './utils.js';
 window.closeModal = closeModal;
 window.DB = DB;
 import { renderOrderView, destroyOrderView } from './views/order.js';
-import { renderActiveOrdersView } from './views/activeOrders.js';
+import { renderActiveOrdersView, destroyActiveOrdersView } from './views/activeOrders.js';
 import { renderItemsView } from './views/items.js';
 import { renderSuppliersView } from './views/suppliers.js';
 import { renderIngredientsView } from './views/ingredients.js';
@@ -25,7 +25,7 @@ let currentDestroy = null;
 
 const routes = {
     'orders': { render: renderOrderView, destroy: destroyOrderView },
-    'active-orders': { render: renderActiveOrdersView },
+    'active-orders': { render: renderActiveOrdersView, destroy: destroyActiveOrdersView },
     'items': { render: renderItemsView },
     'suppliers': { render: renderSuppliersView },
     'ingredients': { render: renderIngredientsView },
@@ -69,6 +69,12 @@ async function navigate(viewName) {
 
     if (location.hash !== `#/${viewName}`) {
         history.pushState(null, '', `#/${viewName}`);
+    }
+
+    // If we're navigating to active-orders, we might want to trigger a refresh
+    if (viewName === 'active-orders') {
+        const btn = document.getElementById('btn-refresh-active');
+        if (btn) btn.click();
     }
 }
 
@@ -429,6 +435,8 @@ async function init() {
             // Initial sales update
             updateSidebarSales();
 
+            // Setup real-time notifications
+            setupNotifications();
         } else {
             // User is logged out — show auth page
             showAuthPage();
@@ -450,3 +458,121 @@ init().catch(err => {
       `;
     }
 });
+
+// ---- Real-time Order Notifications ----
+let _notificationUnsubscribe = null;
+let _isInitialLoad = true;
+let _tablesCache = {};
+let _waitersCache = {};
+
+async function setupNotifications() {
+    if (_notificationUnsubscribe) _notificationUnsubscribe();
+    
+    // Create container if not exists
+    if (!document.getElementById('notification-container')) {
+        const container = document.createElement('div');
+        container.id = 'notification-container';
+        document.body.appendChild(container);
+    }
+
+    // Pre-fetch caches for mapping IDs
+    try {
+        const [tables, waiters] = await Promise.all([DB.getAll('tables'), DB.getAll('suppliers')]);
+        _tablesCache = Object.fromEntries(tables.map(t => [t.id, t.name]));
+        _waitersCache = Object.fromEntries(waiters.map(w => [w.id, w.name]));
+    } catch (err) {
+        console.error('Error pre-fetching notification caches:', err);
+    }
+
+    _isInitialLoad = true;
+    _notificationUnsubscribe = DB.subscribeToOrders((order, isPending) => {
+        if (_isInitialLoad) return; // Skip initial batch
+        if (isPending) return; // Skip local optimistic updates
+
+        // Only notify for KOT types that are 'open'
+        if (order.status === 'open') {
+            showOrderNotification(order);
+        }
+    });
+
+    // After a short delay, flip the initial load flag
+    setTimeout(() => { _isInitialLoad = false; }, 2000);
+}
+
+function showOrderNotification(order) {
+    const container = document.getElementById('notification-container');
+    const notification = document.createElement('div');
+    notification.className = 'order-notification';
+    
+    const waiterName = _waitersCache[order.supplierId] || 'Unknown Waiter';
+    const tableName = _tablesCache[order.tableId] || 'Unknown Table';
+    const itemsCount = order.items?.length || 0;
+
+    notification.innerHTML = `
+        <div class="notification-header">
+            <span class="notification-badge">New Order</span>
+            <span class="notification-title">#${order.orderNumber}</span>
+        </div>
+        <div class="notification-body">
+            <div class="notification-info">
+                <span class="material-symbols-outlined">person</span>
+                <span>${waiterName}</span>
+            </div>
+            <div class="notification-info">
+                <span class="material-symbols-outlined">table_restaurant</span>
+                <span>${tableName}</span>
+            </div>
+            <div class="notification-info">
+                <span class="material-symbols-outlined">list_alt</span>
+                <span>${itemsCount} item(s)</span>
+            </div>
+        </div>
+        <div class="notification-footer">
+            <div class="notification-action">
+                <span>View & Bill</span>
+                <span class="material-symbols-outlined">arrow_forward</span>
+            </div>
+        </div>
+    `;
+
+    notification.onclick = () => {
+        notification.classList.add('notification-out');
+        setTimeout(() => notification.remove(), 300);
+        handleNotificationClick(order);
+    };
+
+    container.appendChild(notification);
+
+    // Auto-remove after 15 seconds
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.classList.add('notification-out');
+            setTimeout(() => notification.remove(), 300);
+        }
+    }, 15000);
+
+    // Play a subtle sound if possible
+    try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.volume = 0.4;
+        audio.play();
+    } catch (e) {
+        // Ignore audio errors (browsers often block auto-play)
+    }
+}
+
+async function handleNotificationClick(order) {
+    // Navigate to active orders
+    await navigate('active-orders');
+    
+    // Small delay to ensure view is rendered
+    setTimeout(async () => {
+        const viewBtn = document.querySelector(`.btn-view-order[data-id="${order.id}"]`);
+        if (viewBtn) {
+            viewBtn.click();
+        } else {
+            // Fallback: If not found in current view (maybe it was billed/cancelled already)
+            showToast('Order details not found. It might have been updated.', 'info');
+        }
+    }, 300);
+}

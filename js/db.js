@@ -3,7 +3,7 @@
 import { firestore } from './firebase.js';
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc,
-  query, where, runTransaction, writeBatch, orderBy, limit
+  query, where, runTransaction, writeBatch, orderBy, limit, onSnapshot
 } from 'firebase/firestore';
 
 // ---- Account Context ----
@@ -448,6 +448,25 @@ export const DB = {
       transaction.delete(txRef);
       transaction.set(summaryRef, summary);
       return true;
+    });
+  },
+  subscribeToOrders: (callback) => {
+    const q = query(tenantCollection('orders'), where('status', '==', 'open'));
+    return onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          callback(change.doc.data(), snapshot.metadata.hasPendingWrites);
+        }
+      });
+    });
+  },
+  onActiveOrdersChange: (callback) => {
+    const q = query(tenantCollection('orders'), where('status', '==', 'open'));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(d => d.data());
+      // Sort in memory to avoid needing a Firestore composite index
+      data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      callback(data);
     });
   }
 };
