@@ -77,9 +77,6 @@ function updateTable(container, orders, supplierMap, tableMap) {
                       <span class="material-symbols-outlined" style="font-size:16px">visibility</span>
                     </button>
                     ${Auth.isAdmin() ? `
-                    <button class="btn btn-sm btn-ghost btn-reprint-kot" data-id="${order.id}" title="Reprint KOT">
-                      <span class="material-symbols-outlined" style="font-size:16px">print</span> Reprint
-                    </button>
                     <button class="btn btn-sm btn-ghost text-danger btn-cancel-order" data-id="${order.id}" title="Cancel Order">
                       <span class="material-symbols-outlined" style="font-size:16px">cancel</span>
                     </button>
@@ -164,10 +161,40 @@ function setupEventListeners(container, supplierMap, tableMap) {
           await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
         }
 
-        const supplier = order.supplierId ? supplierMap[order.supplierId] : '';
-        const table = order.tableId ? tableMap[order.tableId] : 'N/A';
-        const printHTML = generateBillPrintHTML(order, supplier?.name || '', table?.name || 'N/A');
-        printContent(printHTML);
+        // ---- PRINTING LOGIC (KOTs then Bill) ----
+        const supplierName = supplierMap[order.supplierId] || '';
+        const tableName = tableMap[order.tableId] || 'N/A';
+
+        // Filter and split items for KOT printing
+        const printableItems = order.items.filter(item => {
+          const cat = (item.category || '').toUpperCase().trim();
+          const name = (item.itemName || '').toUpperCase().trim();
+          return cat !== 'LIQUOR' && !item.isLiquor && 
+                 cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
+                 name !== 'AC-CHARGES' && name !== 'AC CHARGES';
+        });
+
+        const kitchenItems = printableItems.filter(item => !isCounterItem(item));
+        const counterItems = printableItems.filter(item => isCounterItem(item));
+
+        // 1. Print Kitchen KOT
+        if (kitchenItems.length > 0) {
+          const kitchenOrder = { ...order, items: kitchenItems };
+          printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
+        }
+
+        // 2. Print Counter KOT
+        if (counterItems.length > 0) {
+          setTimeout(() => {
+            printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+          }, kitchenItems.length > 0 ? 1000 : 0);
+        }
+
+        // 3. Print Final Bill
+        setTimeout(() => {
+          const printHTML = generateBillPrintHTML(order, supplierName, tableName);
+          printContent(printHTML);
+        }, (kitchenItems.length > 0 || counterItems.length > 0) ? 2000 : 0);
 
         showToast(`Bill #${order.orderNumber} successfully generated!`, 'success');
       } catch (err) {
@@ -176,51 +203,6 @@ function setupEventListeners(container, supplierMap, tableMap) {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
       }
-    });
-  });
-
-  // Reprint KOT (Admin Only)
-  container.querySelectorAll('.btn-reprint-kot').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (!Auth.isAdmin()) {
-        showToast('Only admins can reprint KOT', 'error');
-        return;
-      }
-
-      const id = parseInt(btn.dataset.id);
-      const order = await DB.getById('orders', id);
-      if (!order) return;
-
-      const supplierName = supplierMap[order.supplierId] || '';
-      const tableName = tableMap[order.tableId] || 'N/A';
-
-      const printableItems = order.items.filter(item => {
-        const cat = (item.category || '').toUpperCase().trim();
-        const name = (item.itemName || '').toUpperCase().trim();
-        return cat !== 'LIQUOR' && !item.isLiquor && 
-               cat !== 'AC-CHARGES' && cat !== 'AC CHARGES' && 
-               name !== 'AC-CHARGES' && name !== 'AC CHARGES';
-      });
-
-      const kitchenItems = printableItems.filter(item => !isCounterItem(item));
-      const counterItems = printableItems.filter(item => isCounterItem(item));
-
-      if (kitchenItems.length > 0) {
-        const kitchenOrder = { ...order, items: kitchenItems };
-        printContent(generateKOTPrintHTML(kitchenOrder, supplierName, tableName));
-      }
-
-      if (counterItems.length > 0) {
-        if (kitchenItems.length > 0) {
-          setTimeout(() => {
-            printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
-          }, 1000);
-        } else {
-          printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
-        }
-      }
-
-      showToast(`Reprinting KOT #${order.orderNumber}`, 'success');
     });
   });
 
@@ -298,4 +280,5 @@ function setupEventListeners(container, supplierMap, tableMap) {
     });
   });
 }
+
 
