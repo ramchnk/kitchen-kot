@@ -18,18 +18,29 @@ let state = {
 };
 
 const PRIORITY_ITEMS = [
-    'cup',
-    'Spl Fruits Salad',
-    'Water Kinley 1Ltr',
-    'Water Aquafina 500ml',
-    'Penut Masala',
-    'Onion Pakkoda',
-    'Sundal',
-    'Boil Egg',
-    'Ver Kadalai',
-    'Chicken Uppukari',
-    'Half Boil',
-    'Egg Poriyal'
+    'Kings Cig',
+    'Gold Filter Cig',
+    '7up 200ml',
+    '7up 400ml',
+    '7up 750ml',
+    'Pepsi 200ml',
+    'Soda Lehar 750ml',
+    'Kaadai 65',
+    'Chicken Fried Rice',
+    'Tandoori Chicken (Qua)',
+    'Egg Mass',
+    'Omlet Single',
+    'Pepper Chicken Masala',
+    'Mushroom 65',
+    'Gobi 65',
+    'Egg Pakkoda',
+    'Tandoori Chicken (Half)',
+    'Tandoori rotti',
+    'Egg Poriyal',
+    'Naan',
+    'Chicken 65 [Bone Less]',
+    'French Fries',
+    'Chicken 65 [Bone]'
 ].map(i => i.toLowerCase());
 
 // --- DOM Elements ---
