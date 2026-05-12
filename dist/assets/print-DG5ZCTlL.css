@@ -6,6 +6,7 @@
     #app,
     #modal-overlay,
     #toast-container,
+    #notification-container,
     #shortcut-bar {
         display: none !important;
     }
