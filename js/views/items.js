@@ -1,7 +1,7 @@
 // ===== Item Master View =====
 import { DB } from '../db.js';
 import { Auth } from '../auth.js';
-import { formatCurrency, showToast, showModal, closeModal } from '../utils.js';
+import { formatCurrency, showToast, showModal, closeModal, exportToCSV } from '../utils.js';
 
 const DIRECT_PURCHASE_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CUP'];
 function isStockTracked(category) {
@@ -28,6 +28,9 @@ export async function renderItemsView(container) {
           <span class="material-symbols-outlined">search</span>
           <input type="text" class="form-input" id="item-filter" placeholder="Filter items...">
         </div>
+        <button class="btn btn-ghost" id="btn-export-items">
+          <span class="material-symbols-outlined">download</span> Export
+        </button>
         ${Auth.isAdmin() ? `
         <button class="btn btn-primary" id="btn-add-item">
           <span class="material-symbols-outlined">add</span> Add Item
@@ -69,6 +72,24 @@ export async function renderItemsView(container) {
     );
     document.getElementById('items-table-body').innerHTML = renderItemRows(filtered, Auth.isAdmin());
     attachItemActions(container, items, categories);
+  });
+
+  // Export button
+  document.getElementById('btn-export-items')?.addEventListener('click', () => {
+    const headers = ['ID', 'Code', 'Barcode', 'Name', 'Category', 'Selling Price', 'Current Stock', 'Incentive Percent', 'Active'];
+    const exportData = items.map(i => ({
+      id: i.id,
+      code: i.code || '',
+      barcode: i.barcode || '',
+      name: i.name,
+      category: i.category,
+      sellingprice: i.sellingPrice,
+      currentstock: i.currentStock || 0,
+      incentivepercent: i.incentivePercent || 0,
+      active: i.active ? 'Yes' : 'No'
+    }));
+    exportToCSV('item_master.csv', exportData, headers);
+    showToast('Item master exported to CSV', 'success');
   });
 
   // Add button

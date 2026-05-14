@@ -330,3 +330,31 @@ export function isCounterItem(item) {
   ];
   return counterCats.includes(cat);
 }
+
+export function exportToCSV(filename, data, headers) {
+  const csvRows = [];
+  // Add headers
+  csvRows.push(headers.join(','));
+
+  // Add data
+  for (const row of data) {
+    const values = headers.map(header => {
+      const field = header.toLowerCase().replace(/ /g, '');
+      const val = row[field] !== undefined ? row[field] : (row[header] !== undefined ? row[header] : '');
+      const escaped = ('' + val).replace(/"/g, '""');
+      return `"${escaped}"`;
+    });
+    csvRows.push(values.join(','));
+  }
+
+  const csvString = csvRows.join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
