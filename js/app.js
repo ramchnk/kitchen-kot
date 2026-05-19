@@ -3,7 +3,7 @@ import { DB } from './db.js';
 import { Auth } from './auth.js';
 import { registerShortcut } from './keyboard.js';
 import { initThemeSystem } from './themes.js';
-import { showToast, formatCurrency, todayISO, closeModal, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, isCounterItem } from './utils.js';
+import { showToast, formatCurrency, todayISO, closeModal } from './utils.js';
 
 window.closeModal = closeModal;
 window.DB = DB;
@@ -492,22 +492,6 @@ async function setupNotifications() {
         // Only notify for KOT types that are 'open'
         if (order.status === 'open') {
             showOrderNotification(order);
-            
-            // Auto-print KOT on the desktop when received from mobile
-            const waiterName = _waitersCache[order.supplierId] || 'Unknown Waiter';
-            const tableName = _tablesCache[order.tableId] || 'Unknown Table';
-
-            const kitchenItems = (order.items || []).filter(item => !isCounterItem(item));
-            const counterItems = (order.items || []).filter(item => isCounterItem(item));
-
-            if (kitchenItems.length > 0) {
-                printContent(generateKOTPrintHTML({ ...order, items: kitchenItems }, waiterName, tableName));
-            }
-            if (counterItems.length > 0) {
-                setTimeout(() => {
-                    printContent(generateCounterKOTPrintHTML(order, waiterName, tableName, counterItems));
-                }, 1000);
-            }
         }
     });
 

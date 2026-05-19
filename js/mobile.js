@@ -322,7 +322,23 @@ sendKotBtn.addEventListener('click', async () => {
 
         await DB.add('orders', order);
 
-        // The KOT will now be automatically printed by the Desktop app via Firestore sync
+        // Print KOT
+        const supplierName = state.waiters.find(w => String(w.id) === state.selectedWaiter)?.name || '';
+        const tableName = state.tables.find(t => String(t.id) === state.selectedTable)?.name || '';
+
+        // Handle KOT Printing (same logic as order.js)
+        const kitchenItems = order.items.filter(item => !isCounterItem(item));
+        const counterItems = order.items.filter(item => isCounterItem(item));
+
+        if (kitchenItems.length > 0) {
+            printContent(generateKOTPrintHTML({ ...order, items: kitchenItems }, supplierName, tableName));
+        }
+        
+        if (counterItems.length > 0) {
+            setTimeout(() => {
+                printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+            }, 1000);
+        }
 
         showToast('KOT Sent successfully!', 'success');
         
