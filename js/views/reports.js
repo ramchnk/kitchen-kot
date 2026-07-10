@@ -2133,6 +2133,12 @@ async function showEODReport() {
             <span>Cash Withdrawals</span>
             <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayWithdrawals).replace('₹', '')}</span>
           </div>` : ''}
+
+          ${todaySurplusOutflow > 0 ? `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Stock Surplus</span>
+            <span style="color: #f43f5e; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todaySurplusOutflow).replace('₹', '')}</span>
+          </div>` : ''}
           
           <div style="border-top: 1px dashed rgba(255,255,255,0.2); margin: 20px 0;"></div>
           
@@ -2227,6 +2233,16 @@ async function showEODReport() {
                     <div style="display: flex; justify-content: space-between; margin: 4px 0; border-top: 1px dashed #000; padding-top: 4px;">
                         <span>Net Expenses:</span>
                         <span>${formatCurrency(todayExpenses)}</span>
+                    </div>` : ''}
+                    ${todayWithdrawals > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Withdrawals:</span>
+                        <span>${formatCurrency(todayWithdrawals)}</span>
+                    </div>` : ''}
+                    ${todaySurplusOutflow > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Stock Surplus:</span>
+                        <span>${formatCurrency(todaySurplusOutflow)}</span>
                     </div>` : ''}
                     <div style="display: flex; justify-content: space-between; margin: 15px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 10px;">
                         <span>Cash in Hand:</span>
