@@ -29,6 +29,25 @@ async function _getBilledOrders() {
 // Invalidate billed orders cache whenever an order is created, billed, or cancelled
 window.addEventListener('orders-updated', () => { _billedOrdersCache = null; });
 
+// ---- Session-level stock adjustments cache ----
+// stockAdjustments are re-fetched at most once per 5 minutes, not on every date change.
+let _stockAdjCache = null;
+let _stockAdjCacheTime = 0;
+
+async function _getStockAdjustments() {
+  const now = Date.now();
+  if (_stockAdjCache !== null && (now - _stockAdjCacheTime < BILLED_ORDERS_TTL)) {
+    return _stockAdjCache;
+  }
+  _stockAdjCache = await DB.getAll('stockAdjustments');
+  _stockAdjCacheTime = now;
+  return _stockAdjCache;
+}
+
+// Invalidate stock adjustments cache after saving closing stock
+window.addEventListener('stock-adjustments-updated', () => { _stockAdjCache = null; });
+
+
 export async function renderReportsView(container) {
   container.innerHTML = `
     <div class="view-header">
@@ -136,91 +155,143 @@ export async function renderReportsView(container) {
 async function generateReports(container) {
   const dateStr = document.getElementById('report-date')?.value || todayISO();
   
-  // 1. Fetch Master Data (cached)
-  if (masterItems.length === 0) masterItems = await DB.getAll('items');
-  if (masterSuppliers.length === 0) masterSuppliers = await DB.getAll('suppliers');
-  if (masterIngredients.length === 0) masterIngredients = await DB.getAll('ingredients');
-  if (masterRecipes.length === 0) masterRecipes = await DB.getAll('itemIngredients');
-  if (masterGrocerySuppliers.length === 0) masterGrocerySuppliers = await DB.getAll('grocerySuppliers');
-
-  // 2. Fetch all stock adjustments (small collection, vital for tracking)
-  const stockAdjustments = await DB.getAll('stockAdjustments');
-
-  // 3. OPTIMIZATION: Determine how much history we REALLY need
-  // For standard reports (Sales, Expense, etc), we only need the selected day.
-  // For Product Stock, we need history back to the LATEST adjustment for each product.
-  
-  let earliestAnchorDate = dateStr;
-  let needsFullHistory = false;
-
-  masterItems.forEach(prod => {
-    const prodAdjs = stockAdjustments
-      .filter(a => a.productId === prod.id && a.date < dateStr)
-      .sort((a, b) => b.date.localeCompare(a.date));
-
-    if (prodAdjs.length > 0) {
-      if (prodAdjs[0].date < earliestAnchorDate) {
-        earliestAnchorDate = prodAdjs[0].date;
-      }
-    } else {
-      // If ANY product has no past adjustment, we might need full history for accuracy
-      needsFullHistory = true;
-    }
-  });
-
-  // If some products have no adjustments, go back far enough to catch initial purchases
-  if (needsFullHistory && earliestAnchorDate > '2026-03-01') {
-    earliestAnchorDate = '2026-03-01';
+  // 1. Load master data in PARALLEL (module-level cache — only fetches on first load)
+  if (masterItems.length === 0 || masterSuppliers.length === 0 ||
+      masterIngredients.length === 0 || masterRecipes.length === 0 ||
+      masterGrocerySuppliers.length === 0) {
+    [masterItems, masterSuppliers, masterIngredients, masterRecipes, masterGrocerySuppliers] =
+      await Promise.all([
+        masterItems.length === 0 ? DB.getAll('items') : Promise.resolve(masterItems),
+        masterSuppliers.length === 0 ? DB.getAll('suppliers') : Promise.resolve(masterSuppliers),
+        masterIngredients.length === 0 ? DB.getAll('ingredients') : Promise.resolve(masterIngredients),
+        masterRecipes.length === 0 ? DB.getAll('itemIngredients') : Promise.resolve(masterRecipes),
+        masterGrocerySuppliers.length === 0 ? DB.getAll('grocerySuppliers') : Promise.resolve(masterGrocerySuppliers),
+      ]);
   }
 
-  // 4. Fetch all billed orders using session cache (avoids full-collection scan on every date change)
-  const allBilled = await _getBilledOrders();
-  
-  const rangeOrders = allBilled.filter(o => {
-    const d = (o.date || (o.billedAt || '').substring(0, 10));
-    return d >= earliestAnchorDate && d <= dateStr;
-  });
+  // 2. Fetch today's data in PARALLEL — all targeted single-field queries (no full scans)
+  //    Orders: query by 'date' field only — fast (~50 reads for today vs 500+ for all-time)
+  //    _getBilledOrders() full scan is NEVER called here — only inside Product Stock lazy loader.
+  const [todayOrders, purchases, expenses, payments, stockAdjustments] = await Promise.all([
+    DB.getFiltered('orders', { where: [['date', '==', dateStr]] }),
+    DB.getFiltered('purchases', { where: [['date', '==', dateStr]] }),
+    DB.getFiltered('expenses', { where: [['date', '==', dateStr]] }),
+    DB.getFiltered('walletTransactions', { where: [['date', '==', dateStr]] }),
+    _getStockAdjustments(),
+  ]);
 
-  const rangePurchases = await DB.getFiltered('purchases', {
-    where: [
-      ['date', '>=', earliestAnchorDate],
-      ['date', '<=', dateStr]
-    ]
-  });
+  // All orders have a date field — filter billed orders for the selected date
+  const orders = todayOrders.filter(o => o.status === 'billed');
 
-  // Extract only orders specifically for the selected date for summary reports
-  const orders = rangeOrders.filter(o => (o.date === dateStr || (!o.date && o.billedAt?.startsWith(dateStr))));
-  const purchases = rangePurchases.filter(p => p.date === dateStr);
-  
-  const expenses = await DB.getFiltered('expenses', {
-    where: [['date', '==', dateStr]]
-  });
-
-  const payments = await DB.getFiltered('walletTransactions', {
-    where: [['date', '==', dateStr]]
-  });
   const incentivePayments = payments.filter(p => p.sourceId?.startsWith('INC-PAY-'));
   const supplierWalletPayments = payments.filter(p => p.type === 'purchase');
-
-  // Special check: If no orders with 'date' field, try falling back to today if it is today
-  if (orders.length === 0 && isToday(dateStr)) {
-    // This handles the transition period for old records
-  }
+  const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
   const itemMap = Object.fromEntries(masterItems.map(i => [i.id, i]));
   const supplierMap = Object.fromEntries(masterSuppliers.map(s => [s.id, s]));
   const ingredientMap = Object.fromEntries(masterIngredients.map(i => [i.id, i]));
   const grocerySupplierMap = Object.fromEntries(masterGrocerySuppliers.map(s => [s.id, s]));
-  const dayAdjustments = stockAdjustments.filter(a => a.date === dateStr);
 
+  // 3. Render all tabs that only need today's data — all instant, no heavy reads
   generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments);
   generateIncentiveReport(container, orders, itemMap, supplierMap, dateStr, incentivePayments);
   generateConsumptionReport(container, orders, masterRecipes, ingredientMap, dateStr);
   generatePurchaseReport(container, purchases, ingredientMap, itemMap, grocerySupplierMap, dateStr);
-  generateProductStockReport(orders, rangePurchases, masterItems, dateStr, stockAdjustments, rangeOrders);
   generateExpenseReport(container, expenses, dateStr, incentivePayments, supplierWalletPayments);
   generateCustomRangeReport(container, orders, itemMap, supplierMap);
+
+  // 4. Product Stock: lazy — _getBilledOrders() full scan deferred until user clicks tab
+
+  setupLazyProductStockTab(container, orders, dateStr, stockAdjustments);
 }
+
+/**
+ * Sets up the Product Stock tab to lazy-load its data when the user clicks on it.
+ * This defers the expensive full billed-orders history scan until it is actually needed.
+ */
+function setupLazyProductStockTab(container, todayOrders, dateStr, stockAdjustments) {
+  const tab = document.getElementById('tab-product-stock');
+  if (!tab) return;
+
+  // Show a friendly placeholder
+  tab.innerHTML = `
+    <div class="empty-state" style="padding: 60px" id="product-stock-placeholder">
+      <span class="material-symbols-outlined" style="font-size: 48px; color: var(--accent-primary); margin-bottom: 12px;">inventory_2</span>
+      <p style="font-weight: 600; margin-bottom: 6px;">Product Stock Report</p>
+      <p style="font-size: 0.85rem; color: var(--text-muted)">Click this tab to load stock analysis</p>
+    </div>
+  `;
+
+  let isLoaded = false;
+
+  const loadStockData = async () => {
+    if (isLoaded) return;
+    isLoaded = true;
+
+    // Show spinner inside the tab
+    tab.innerHTML = `
+      <div class="empty-state" style="padding: 60px">
+        <span class="material-symbols-outlined spinning" style="font-size: 48px; margin-bottom: 12px">sync</span>
+        <p>Loading historical stock data...</p>
+      </div>
+    `;
+
+    try {
+      // Compute the earliest date we need order history from (based on last stock adjustment)
+      let earliestAnchorDate = dateStr;
+      let needsFullHistory = false;
+
+      masterItems.forEach(prod => {
+        const prodAdjs = stockAdjustments
+          .filter(a => a.productId === prod.id && a.date < dateStr)
+          .sort((a, b) => b.date.localeCompare(a.date));
+
+        if (prodAdjs.length > 0) {
+          if (prodAdjs[0].date < earliestAnchorDate) {
+            earliestAnchorDate = prodAdjs[0].date;
+          }
+        } else {
+          needsFullHistory = true;
+        }
+      });
+
+      if (needsFullHistory && earliestAnchorDate > '2026-03-01') {
+        earliestAnchorDate = '2026-03-01';
+      }
+
+      // NOW fetch the heavy data (only when user actually wants this tab)
+      const [allBilled, rangePurchases] = await Promise.all([
+        _getBilledOrders(),
+        DB.getFiltered('purchases', {
+          where: [
+            ['date', '>=', earliestAnchorDate],
+            ['date', '<=', dateStr]
+          ]
+        }),
+      ]);
+
+      const rangeOrders = allBilled.filter(o => {
+        const d = o.date || (o.billedAt || '').substring(0, 10);
+        return d >= earliestAnchorDate && d <= dateStr;
+      });
+
+      generateProductStockReport(todayOrders, rangePurchases, masterItems, dateStr, stockAdjustments, rangeOrders);
+    } catch (err) {
+      tab.innerHTML = `
+        <div class="empty-state" style="padding: 40px">
+          <span class="material-symbols-outlined" style="color: var(--danger)">error</span>
+          <p class="text-danger">Failed to load stock data: ${err.message}</p>
+        </div>
+      `;
+    }
+  };
+
+  // Auto-trigger when the Product Stock tab button is clicked
+  const tabBtn = container.querySelector('[data-tab="product-stock"]');
+  tabBtn?.addEventListener('click', loadStockData);
+}
+
+
 
 function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments = []) {
   const tab = document.getElementById('tab-sales');
@@ -1644,6 +1715,9 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
         ? `Stock for ${formatDate(dateStr)} saved with ${adjustmentCount} adjustment(s).`
         : `Stock updated for ${updatedCount} product(s).`;
       showToast(msg, 'success');
+
+      // Invalidate stock adjustments cache so next Generate fetches fresh data
+      window.dispatchEvent(new Event('stock-adjustments-updated'));
 
       // Refresh the report to reflect updated stock and adjustments in Sales Report
       const reportDate = document.getElementById('report-date');

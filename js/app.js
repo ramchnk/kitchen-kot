@@ -3,7 +3,7 @@ import { DB } from './db.js';
 import { Auth } from './auth.js';
 import { registerShortcut } from './keyboard.js';
 import { initThemeSystem } from './themes.js';
-import { showToast, formatCurrency, todayISO, closeModal } from './utils.js';
+import { showToast, closeModal } from './utils.js';
 
 window.closeModal = closeModal;
 window.DB = DB;
@@ -157,73 +157,8 @@ function updateSidebarUserInfo(user, account) {
         joinCodeSection.classList.add('hidden');
     }
 }
-// ---- Live Sales Stats in Sidebar ----
-// One-time flag: once we confirm no legacy orders (missing 'date') exist for today, skip the full scan
-let _noLegacyOrdersForSidebar = false;
-
-async function updateSidebarSales() {
-    const liquorEl = document.getElementById('sidebar-liquor-sales');
-    const kitchenEl = document.getElementById('sidebar-kitchen-sales');
-    if (!liquorEl || !kitchenEl) return;
-
-    try {
-        const today = todayISO();
-        // OPTIMIZATION: Fetch ONLY today's billed orders (targeted query)
-        let todayOrders = await DB.getFiltered('orders', {
-            where: [
-                ['status', '==', 'billed'],
-                ['date', '==', today]
-            ]
-        });
-
-        // HYBRID FALLBACK: Only check once per session for legacy orders missing the 'date' field.
-        // After the first check finds none, we skip this expensive full-collection scan permanently.
-        if (!_noLegacyOrdersForSidebar) {
-            const allBilled = await DB.getByIndex('orders', 'status', 'billed');
-            const missingDateOrders = allBilled.filter(o =>
-                !o.date && o.billedAt && o.billedAt.startsWith(today)
-            );
-            if (missingDateOrders.length === 0) {
-                _noLegacyOrdersForSidebar = true; // No legacy orders — skip this scan in future
-            } else {
-                todayOrders = [...todayOrders, ...missingDateOrders];
-            }
-        }
-
-        let liquorTotal = 0;
-        let counterTotal = 0;
-        let kitchenTotal = 0;
-
-        const COUNTER_CATEGORIES = ['COOL DRINKS', 'CIGARETTE', 'CIGARETTES', 'CIGARATE', 'COOLDRINKS', 'COOLDRINK'];
-
-        todayOrders.forEach(order => {
-            (order.items || []).forEach(item => {
-                const category = (item.category || '').toUpperCase().trim();
-                const isLiquor = category === 'LIQUOR' || item.isLiquor;
-                const isCounter = COUNTER_CATEGORIES.includes(category);
-
-                if (isLiquor) {
-                    liquorTotal += (item.amount || 0);
-                } else if (isCounter) {
-                    counterTotal += (item.amount || 0);
-                } else {
-                    kitchenTotal += (item.amount || 0);
-                }
-            });
-        });
-
-        // Include counter items in kitchenTotal for consistency with Reports view grouping
-        if (liquorEl) liquorEl.textContent = formatCurrency(liquorTotal);
-        if (kitchenEl) kitchenEl.textContent = formatCurrency(kitchenTotal + counterTotal);
-    } catch (err) {
-        console.error('Error updating sidebar sales:', err);
-    }
-}
-
-// Make it globally accessible for view modules
-// Sidebar totals update only on page load/login — no live event listeners needed.
-// User can refresh the page to see updated totals. This eliminates all event-driven Firestore reads.
-window.updateSidebarSales = updateSidebarSales;
+// Sidebar sales stats removed — data is available on the Reports page when needed.
+// This eliminates the expensive full-collection scan that ran on every login/refresh.
 
 // ---- Show Auth Page / Show App ----
 function showAuthPage() {
@@ -431,9 +366,6 @@ async function init() {
                     }
                 })();
             }
-
-            // Initial sales update
-            updateSidebarSales();
 
             // Setup real-time notifications
             setupNotifications();

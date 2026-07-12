@@ -7,20 +7,41 @@ export async function renderWalletView(container) {
   // 1. Fetch persistent totals from the dedicated summary record
   const walletSummary = await DB.getWalletSummary();
   
-  // 2. Fetch history and account opening balance to compute running ledger
-  const openingBalance = await DB.getAccountBalance();
-  const allTransactions = await DB.getAll('walletTransactions');
-  
-  // Sort by date then createdAt to ensure logical flow and accurate running balance
-  allTransactions.sort((a, b) => {
-    const dateA = a.date || a.createdAt?.substring(0, 10);
-    const dateB = b.date || b.createdAt?.substring(0, 10);
+  // 2. Load only the last 90 days of transactions (saves ~90% of Firestore reads)
+  const windowDate = new Date();
+  windowDate.setDate(windowDate.getDate() - 90);
+  const windowStartDate = windowDate.toISOString().split('T')[0];
+
+  // Primary fetch: transactions with a 'date' field >= windowStartDate
+  const recentTransactions = await DB.getFiltered('walletTransactions', {
+    where: [['date', '>=', windowStartDate]]
+  });
+
+  // Safety: Sort oldest → newest, using createdAt as fallback for any missing date fields
+  recentTransactions.sort((a, b) => {
+    const dateA = a.date || a.createdAt?.substring(0, 10) || '';
+    const dateB = b.date || b.createdAt?.substring(0, 10) || '';
     if (dateA !== dateB) return dateA.localeCompare(dateB);
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
 
-  let currentLoopBalance = openingBalance;
-  const ledger = allTransactions.map(t => {
+  // Compute balance at the START of the 90-day window:
+  // walletSummary.currentBalance = all-time accurate balance (maintained atomically).
+  // Subtract the net of recent transactions to get balance just before the window.
+  // NOTE: walletSummary is always the authoritative source — per-row balances derived from it
+  // are always correct regardless of which transactions are in the window.
+  const recentNet = recentTransactions.reduce((net, t) => {
+    const amt = Number(t.amount || 0);
+    if (t.type === 'income') return net + amt;
+    if (t.type === 'adjustment-surplus') return net - amt;
+    return net - amt;
+  }, 0);
+  const balanceBeforeWindow = (walletSummary.currentBalance || 0) - recentNet;
+
+
+  // Build per-row ledger starting from balanceBeforeWindow
+  let currentLoopBalance = balanceBeforeWindow;
+  const ledger = recentTransactions.map(t => {
     const op = currentLoopBalance;
     const numAmount = Number(t.amount || 0);
     if (t.type === 'income') {
@@ -33,7 +54,7 @@ export async function renderWalletView(container) {
     return { ...t, opening: op, closing: currentLoopBalance };
   });
 
-  // Reverse ledger for display (newest first)
+  // Reverse for display (newest first)
   const displayTransactions = [...ledger].reverse();
 
   const totalIncome = walletSummary.totalIncome || 0;
@@ -96,7 +117,12 @@ export async function renderWalletView(container) {
 
     <div class="card">
       <div class="card-header" style="flex-wrap: wrap; gap: 15px;">
-        <h3 class="card-title">Transaction History</h3>
+        <div style="display:flex; align-items:center; gap:10px">
+          <h3 class="card-title">Transaction History</h3>
+          <span style="font-size:0.75rem; color:var(--text-muted); background:var(--bg-elevated); padding:3px 8px; border-radius:12px; white-space:nowrap">
+            Last 90 days
+          </span>
+        </div>
         <div style="display:flex; gap:10px; align-items:center;">
           <span style="font-size: 0.85rem; color: var(--text-muted)">From</span>
           <div class="form-group" style="margin:0; width:130px">
@@ -132,7 +158,7 @@ export async function renderWalletView(container) {
           </tr>
         </thead>
         <tbody id="wallet-transactions-body">
-          ${renderTransactionRows(displayTransactions.slice(0, 100), openingBalance)}
+          ${renderTransactionRows(displayTransactions, balanceBeforeWindow, windowStartDate)}
         </tbody>
       </table>
     </div>
@@ -164,7 +190,7 @@ export async function renderWalletView(container) {
     };
   });
 
-  attachWalletFilters(container, ledger, openingBalance);
+  attachWalletFilters(container, ledger, balanceBeforeWindow);
 }
 
 function showAddEntryModal(container) {
@@ -215,18 +241,12 @@ function showAddEntryModal(container) {
   });
 }
 
-function renderTransactionRows(transactions, initialOpeningBalance) {
-  let rows = '';
-
-  // Only show the global opening balance if we are at the very end of the list (oldest items)
-  // or if we explicitly passed it in for a small list. 
-  // However, with the new ledger logic, every row has its own opening/closing.
-
+function renderTransactionRows(transactions, balanceBeforeWindow, windowStartDate) {
   if (transactions.length === 0) {
-    return `<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found</p></div></td></tr>`;
+    return `<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found in the last 90 days</p></div></td></tr>`;
   }
 
-  rows += transactions.map(t => {
+  const rows = transactions.map(t => {
     const isPositive = t.type === 'income';
     return `
             <tr>
@@ -255,11 +275,20 @@ function renderTransactionRows(transactions, initialOpeningBalance) {
             </tr>`;
   }).join('');
 
-  return rows;
-}
+  // Anchor row — shows balance at start of the 90-day window so user knows continuity
+  const anchorRow = `
+    <tr style="background:var(--bg-elevated); opacity:0.75; font-style:italic;">
+      <td class="text-muted" style="white-space:nowrap; font-size:0.78rem">Before ${windowStartDate}</td>
+      <td colspan="${Auth.isAdmin() ? '4' : '3'}" style="font-size:0.78rem; color:var(--text-muted)">
+        <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle;margin-right:4px">history</span>
+        Older history (not shown) — see Reports for full details
+      </td>
+      <td class="text-right font-mono" style="font-weight:700; font-size:0.78rem">${formatCurrency(balanceBeforeWindow)}</td>
+      ${Auth.isAdmin() ? '<td></td>' : ''}
+    </tr>`;
 
-// In the main renderWalletView function, I need to add the header for the Actions column
-// Let's find where the table head is.
+  return rows + anchorRow;
+}
 
 function attachWalletFilters(container, ledger, openingBalance) {
   const fromInput = document.getElementById('filter-wallet-from');
@@ -308,7 +337,7 @@ function attachWalletFilters(container, ledger, openingBalance) {
      if (filtered.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
      } else {
-        tbody.innerHTML = renderTransactionRows(filtered, openingBalance);
+        tbody.innerHTML = renderTransactionRows(filtered, openingBalance, '90-day window');
         // Re-wire delete buttons for filtered results
         tbody.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
           btn.onclick = async () => {
