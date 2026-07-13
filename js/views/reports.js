@@ -2123,6 +2123,7 @@ async function showEODReport() {
 
     // Sum of manually added income entries
     const todayManualIncome = todayTransactions.filter(isManualIncome).reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const todayManualIncomes = todayTransactions.filter(isManualIncome);
 
     // Detailed Today Flows
     // IMPORTANT: Incentives are type='expense' with sourceId='INC-PAY-*' — exclude them from manual so we don't double-count
@@ -2202,11 +2203,11 @@ async function showEODReport() {
             <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(displaySalesAmount).replace('₹', '')}</span>
           </div>
 
-          ${todayManualIncome > 0 ? `
+          ${todayManualIncomes.map(t => `
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
-            <span>Manual Credit</span>
-            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayManualIncome).replace('₹', '')}</span>
-          </div>` : ''}
+            <span>${t.description || 'Manual Credit'}</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(Number(t.amount || 0)).replace('₹', '')}</span>
+          </div>`).join('')}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
             <span>Today Expenses</span>
@@ -2306,11 +2307,11 @@ async function showEODReport() {
                         <span>Sales:</span>
                         <span>${formatCurrency(todaySales)}</span>
                     </div>
-                    ${todayManualIncome > 0 ? `
+                    ${todayManualIncomes.map(t => `
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
-                        <span>Manual Credit:</span>
-                        <span>${formatCurrency(todayManualIncome)}</span>
-                    </div>` : ''}
+                        <span>${t.description || 'Manual Credit'}:</span>
+                        <span>${formatCurrency(Number(t.amount || 0))}</span>
+                    </div>`).join('')}
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
                         <span>Expenses:</span>
                         <span>${formatCurrency(todayExpensesGross)}</span>
