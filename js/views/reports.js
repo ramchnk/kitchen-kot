@@ -1682,10 +1682,12 @@ function generateProductStockReport(dayOrders, allPurchases, allItems, dateStr, 
       }
 
       // Delete old wallet transactions for this date
-      const allWalletTxns = await DB.getAll('walletTransactions');
+      const dateTxns = await DB.getFiltered('walletTransactions', {
+        where: [['date', '==', dateStr]]
+      });
       const stockAdjSourceId = `STOCK-ADJ-${dateStr}`;
       const stockSurpSourceId = `STOCK-SURP-${dateStr}`;
-      const txnsToDelete = allWalletTxns.filter(t => t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId);
+      const txnsToDelete = dateTxns.filter(t => t.sourceId === stockAdjSourceId || t.sourceId === stockSurpSourceId);
       for (const txn of txnsToDelete) {
         await DB.remove('walletTransactions', txn.id);
       }
@@ -2080,15 +2082,17 @@ async function showEODReport() {
   `);
   
   try {
-    const transactions = await DB.getAll('walletTransactions');
-    const openingBalance = await DB.getAccountBalance();
+    const walletSummary = await DB.getWalletSummary();
+    const recentTransactions = await DB.getFiltered('walletTransactions', {
+      where: [['date', '>=', dateStr]]
+    });
 
     // Logic to distinguish adjustments (either by type or by word "Adjustment" in description)
     const isAdjustment = (t) => t.type === 'adjustment-surplus' || (t.description && t.description.toLowerCase().includes('adjustment'));
 
 
     // Improved filtering for today's transactions (anything specifically on the selected date)
-    const todayTransactions = transactions.filter(t => {
+    const todayTransactions = recentTransactions.filter(t => {
         const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
         return tDate === dateStr;
     });
@@ -2144,27 +2148,16 @@ async function showEODReport() {
     // Today Adjustments Net
     const todayAdjustments = todayShortageIncome - todaySurplusOutflow;
     
-    // Improved filtering for old transactions (anything before the selected date string)
-    const oldTransactions = transactions.filter(t => {
-        const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
-        return tDate < dateStr;
-    });
-
-    const oldIncome = oldTransactions.reduce((sum, t) => {
+    // Calculate net flow of all transactions since dateStr (both today and future transactions)
+    const recentNet = recentTransactions.reduce((net, t) => {
         const amt = Number(t.amount || 0);
-        if (t.type === 'income') return sum + amt;
-        if (t.type === 'adjustment-surplus') return sum - amt;
-        return sum;
-    }, 0);
-
-    const oldOutflow = oldTransactions.reduce((sum, t) => {
-        const amt = Number(t.amount || 0);
-        if (t.type !== 'income' && t.type !== 'adjustment-surplus') return sum + amt;
-        return sum;
+        if (t.type === 'income') return net + amt;
+        if (t.type === 'adjustment-surplus') return net - amt;
+        return net - amt;
     }, 0);
 
     // Final Totals - exactly mirroring wallet balance logic
-    const oldCashHand = openingBalance + oldIncome - oldOutflow;
+    const oldCashHand = (walletSummary.currentBalance || 0) - recentNet;
     // todayCashHand = Sales - Surplus - Expenses - Withdrawals (all outflows)
     const todayCashHand = todaySales - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     

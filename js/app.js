@@ -343,7 +343,9 @@ async function init() {
                                 await DB.update('stockAdjustments', adj);
                             }
 
-                            const transactions = await DB.getAll('walletTransactions');
+                            const transactions = await DB.getFiltered('walletTransactions', {
+                                 where: [['date', '==', sourceDate]]
+                            });
                             const oldAdjSourceId = `STOCK-ADJ-${sourceDate}`;
                             const oldSurpSourceId = `STOCK-SURP-${sourceDate}`;
                             const newAdjSourceId = `STOCK-ADJ-${targetDate}`;

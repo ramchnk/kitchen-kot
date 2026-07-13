@@ -3,34 +3,31 @@ import { DB } from '../db.js';
 import { Auth } from '../auth.js';
 import { formatCurrency, formatDateTime, todayISO, showToast, showModal, closeModal } from '../utils.js';
 
-export async function renderWalletView(container) {
-  // 1. Fetch persistent totals from the dedicated summary record
+export async function getWalletLedger(fromVal) {
   const walletSummary = await DB.getWalletSummary();
   
-  // 2. Load only the last 90 days of transactions (saves ~90% of Firestore reads)
-  const windowDate = new Date();
-  windowDate.setDate(windowDate.getDate() - 90);
-  const windowStartDate = windowDate.toISOString().split('T')[0];
+  let windowStartDate = fromVal;
+  if (!windowStartDate) {
+    const windowDate = new Date();
+    windowDate.setDate(windowDate.getDate() - 3);
+    windowStartDate = windowDate.toISOString().split('T')[0];
+  }
 
   // Primary fetch: transactions with a 'date' field >= windowStartDate
-  const recentTransactions = await DB.getFiltered('walletTransactions', {
+  const transactions = await DB.getFiltered('walletTransactions', {
     where: [['date', '>=', windowStartDate]]
   });
 
   // Safety: Sort oldest → newest, using createdAt as fallback for any missing date fields
-  recentTransactions.sort((a, b) => {
+  transactions.sort((a, b) => {
     const dateA = a.date || a.createdAt?.substring(0, 10) || '';
     const dateB = b.date || b.createdAt?.substring(0, 10) || '';
     if (dateA !== dateB) return dateA.localeCompare(dateB);
     return new Date(a.createdAt) - new Date(b.createdAt);
   });
 
-  // Compute balance at the START of the 90-day window:
-  // walletSummary.currentBalance = all-time accurate balance (maintained atomically).
-  // Subtract the net of recent transactions to get balance just before the window.
-  // NOTE: walletSummary is always the authoritative source — per-row balances derived from it
-  // are always correct regardless of which transactions are in the window.
-  const recentNet = recentTransactions.reduce((net, t) => {
+  // Compute balance at the START of the window
+  const recentNet = transactions.reduce((net, t) => {
     const amt = Number(t.amount || 0);
     if (t.type === 'income') return net + amt;
     if (t.type === 'adjustment-surplus') return net - amt;
@@ -38,10 +35,9 @@ export async function renderWalletView(container) {
   }, 0);
   const balanceBeforeWindow = (walletSummary.currentBalance || 0) - recentNet;
 
-
   // Build per-row ledger starting from balanceBeforeWindow
   let currentLoopBalance = balanceBeforeWindow;
-  const ledger = recentTransactions.map(t => {
+  const ledger = transactions.map(t => {
     const op = currentLoopBalance;
     const numAmount = Number(t.amount || 0);
     if (t.type === 'income') {
@@ -53,6 +49,12 @@ export async function renderWalletView(container) {
     }
     return { ...t, opening: op, closing: currentLoopBalance };
   });
+
+  return { ledger, balanceBeforeWindow, windowStartDate, walletSummary };
+}
+
+export async function renderWalletView(container) {
+  const { ledger, balanceBeforeWindow, windowStartDate, walletSummary } = await getWalletLedger();
 
   // Reverse for display (newest first)
   const displayTransactions = [...ledger].reverse();
@@ -119,8 +121,8 @@ export async function renderWalletView(container) {
       <div class="card-header" style="flex-wrap: wrap; gap: 15px;">
         <div style="display:flex; align-items:center; gap:10px">
           <h3 class="card-title">Transaction History</h3>
-          <span style="font-size:0.75rem; color:var(--text-muted); background:var(--bg-elevated); padding:3px 8px; border-radius:12px; white-space:nowrap">
-            Last 90 days
+          <span style="font-size:0.75rem; color:var(--text-muted); background:var(--bg-elevated); padding:3px 8px; border-radius:12px; white-space:nowrap" id="wallet-history-badge">
+            Last 3 days
           </span>
         </div>
         <div style="display:flex; gap:10px; align-items:center;">
@@ -290,29 +292,43 @@ function renderTransactionRows(transactions, balanceBeforeWindow, windowStartDat
   return rows + anchorRow;
 }
 
-function attachWalletFilters(container, ledger, openingBalance) {
+function attachWalletFilters(container, initialLedger, initialOpeningBalance) {
   const fromInput = document.getElementById('filter-wallet-from');
   const toInput = document.getElementById('filter-wallet-to');
   const typeSelect = document.getElementById('filter-wallet-type');
   const clearBtn = document.getElementById('btn-clear-wallet-filters');
   const tbody = document.getElementById('wallet-transactions-body');
+  const badge = document.getElementById('wallet-history-badge');
 
-  const updateFilters = async () => {
+  let currentLedger = initialLedger;
+  let currentOpeningBalance = initialOpeningBalance;
+  let lastLoadedFromVal = '';
+
+  const updateFilters = async (forceQuery = false) => {
     const fromVal = fromInput.value;
     const toVal = toInput.value;
     const typeVal = typeSelect.value;
 
-    // Immediately show loading
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4"><span class="material-symbols-outlined spinning">sync</span> Searching...</td></tr>';
+    if (forceQuery || fromVal !== lastLoadedFromVal) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4"><span class="material-symbols-outlined spinning">sync</span> Fetching from DB...</td></tr>';
+      
+      try {
+        const { ledger, balanceBeforeWindow } = await getWalletLedger(fromVal);
+        currentLedger = ledger;
+        currentOpeningBalance = balanceBeforeWindow;
+        lastLoadedFromVal = fromVal;
 
-    let filtered = [...ledger];
-
-    if (fromVal) {
-      filtered = filtered.filter(t => {
-        const itemDate = t.date || (t.createdAt ? t.createdAt.split('T')[0] : '');
-        return itemDate >= fromVal;
-      });
+        if (badge) {
+          badge.textContent = fromVal ? `From ${fromVal}` : 'Last 3 days';
+        }
+      } catch (err) {
+        showToast('Error loading ledger: ' + err.message, 'error');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger p-4">Error loading transactions</td></tr>';
+        return;
+      }
     }
+
+    let filtered = [...currentLedger];
 
     if (toVal) {
       filtered = filtered.filter(t => {
@@ -334,31 +350,37 @@ function attachWalletFilters(container, ledger, openingBalance) {
     filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     // Render results
-     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
-     } else {
-        tbody.innerHTML = renderTransactionRows(filtered, openingBalance, '90-day window');
-        // Re-wire delete buttons for filtered results
-        tbody.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
-          btn.onclick = async () => {
-            if (confirm('Are you sure you want to delete this record?')) {
-               await DB.deleteWalletTransaction(btn.dataset.id);
-               showToast('Record deleted', 'success');
-               renderWalletView(container);
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><span class="material-symbols-outlined">history</span><p>No transactions found for this selection</p></div></td></tr>';
+    } else {
+      const fromDateStr = fromVal || (new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      tbody.innerHTML = renderTransactionRows(filtered, currentOpeningBalance, fromDateStr);
+      
+      // Re-wire delete buttons for filtered results
+      tbody.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
+        btn.onclick = async () => {
+          if (confirm('Are you sure you want to permanently delete this wallet record? The balance will be adjusted accordingly.')) {
+            try {
+              await DB.deleteWalletTransaction(btn.dataset.id);
+              showToast('Record deleted and balance updated', 'success');
+              renderWalletView(container);
+            } catch (err) {
+              showToast('Error: ' + err.message, 'error');
             }
-          };
-        });
-     }
-   };
+          }
+        };
+      });
+    }
+  };
 
-  fromInput?.addEventListener('change', updateFilters);
-  toInput?.addEventListener('change', updateFilters);
-  typeSelect?.addEventListener('change', updateFilters);
+  fromInput?.addEventListener('change', () => updateFilters(true));
+  toInput?.addEventListener('change', () => updateFilters(false));
+  typeSelect?.addEventListener('change', () => updateFilters(false));
   clearBtn?.addEventListener('click', () => {
     fromInput.value = '';
     toInput.value = '';
     typeSelect.value = 'all';
-    updateFilters();
+    updateFilters(true);
   });
 }
 
