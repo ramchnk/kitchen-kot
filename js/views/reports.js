@@ -1,6 +1,6 @@
 // ===== Reports View =====
 import { DB } from '../db.js';
-import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast, showModal, closeModal, formatTime } from '../utils.js';
+import { formatCurrency, formatDate, todayISO, isToday, printContent, generateWaiterIncentivePrintHTML, showToast, showModal, closeModal, formatTime, formatDateTime } from '../utils.js';
 
 // Cache master data in memory to drastically reduce DB reads on date change
 let masterItems = [];
@@ -2090,6 +2090,22 @@ async function showEODReport() {
     // Logic to distinguish adjustments (either by type or by word "Adjustment" in description)
     const isAdjustment = (t) => t.type === 'adjustment-surplus' || (t.description && t.description.toLowerCase().includes('adjustment'));
 
+    // "Adjustment - Excess" entries: manually added wallet entries where the description
+    // contains "adjustment - excess" (case-insensitive). These represent cash surpluses
+    // (e.g., extra cash found) that effectively reduce the net expense total.
+    const isExcessAdjustment = (t) =>
+        t.description?.toLowerCase().includes('adjustment - excess') ||
+        t.description?.toLowerCase().includes('adjustment-excess');
+
+    // Manually added income entries in wallet (excluding those that are Excess Adjustments)
+    const isManualIncome = (t) =>
+        t.type === 'income' &&
+        (t.sourceId === null ||
+         t.sourceId === undefined ||
+         String(t.sourceId) === 'null' ||
+         String(t.sourceId) === 'undefined' ||
+         String(t.sourceId).trim() === '') &&
+        !isExcessAdjustment(t);
 
     // Improved filtering for today's transactions (anything specifically on the selected date)
     const todayTransactions = recentTransactions.filter(t => {
@@ -2097,12 +2113,16 @@ async function showEODReport() {
         return tDate === dateStr;
     });
 
-    // Today Sales (Incomes that are NOT adjustments)
+    // Today Sales (Incomes that are NOT adjustments and NOT manual entries)
     const todaySales = todayTransactions.reduce((sum, t) => {
         if (isAdjustment(t)) return sum;
+        if (isManualIncome(t)) return sum;
         if (t.type === 'income') return sum + Number(t.amount || 0);
         return sum;
     }, 0);
+
+    // Sum of manually added income entries
+    const todayManualIncome = todayTransactions.filter(isManualIncome).reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     // Detailed Today Flows
     // IMPORTANT: Incentives are type='expense' with sourceId='INC-PAY-*' — exclude them from manual so we don't double-count
@@ -2130,12 +2150,6 @@ async function showEODReport() {
     // This matches the "Expense Report" tab so both always show the same number
     const todayExpensesGross = todayExpManual + todayExpSupplier + todayExpIncentive;
 
-    // "Adjustment - Excess" entries: manually added wallet entries where the description
-    // contains "adjustment - excess" (case-insensitive). These represent cash surpluses
-    // (e.g., extra cash found) that effectively reduce the net expense total.
-    const isExcessAdjustment = (t) =>
-        t.description?.toLowerCase().includes('adjustment - excess') ||
-        t.description?.toLowerCase().includes('adjustment-excess');
     const todayExcessAdjustment = todayTransactions
         .filter(isExcessAdjustment)
         .reduce((sum, t) => sum + Number(t.amount || 0), 0);
@@ -2158,15 +2172,13 @@ async function showEODReport() {
 
     // Final Totals - exactly mirroring wallet balance logic
     const oldCashHand = (walletSummary.currentBalance || 0) - recentNet;
-    // todayCashHand = Sales - Surplus - Expenses - Withdrawals (all outflows)
-    const todayCashHand = todaySales - todaySurplusOutflow - todayExpenses - todayWithdrawals;
-    
-    // Final check for the 8.00 baseline correction reported by user
+    // todayCashHand = Sales + Manual Income - Surplus - Expenses - Withdrawals (all outflows)
+    const todayCashHand = todaySales + todayManualIncome - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     
     // For display: full sales amount (includes counter/shortage adjustments)
     const displaySalesAmount = todaySales; // = todaySales (already includes shortage income)
-    // Today Cash in Hand = full sales - surplus outflow - expenses - withdrawals
-    const displayCashInHand = displaySalesAmount - todaySurplusOutflow - todayExpenses - todayWithdrawals;
+    // Today Cash in Hand = full sales + manual income - surplus outflow - expenses - withdrawals
+    const displayCashInHand = displaySalesAmount + todayManualIncome - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     // Closing = Opening + Cash in Hand for today
     const displayClosingBalance = oldCashHand + displayCashInHand;
 
@@ -2189,6 +2201,12 @@ async function showEODReport() {
             <span>Today Sales Amount</span>
             <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(displaySalesAmount).replace('₹', '')}</span>
           </div>
+
+          ${todayManualIncome > 0 ? `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Manual Credit</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayManualIncome).replace('₹', '')}</span>
+          </div>` : ''}
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
             <span>Today Expenses</span>
@@ -2288,6 +2306,11 @@ async function showEODReport() {
                         <span>Sales:</span>
                         <span>${formatCurrency(todaySales)}</span>
                     </div>
+                    ${todayManualIncome > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Manual Credit:</span>
+                        <span>${formatCurrency(todayManualIncome)}</span>
+                    </div>` : ''}
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
                         <span>Expenses:</span>
                         <span>${formatCurrency(todayExpensesGross)}</span>
@@ -2323,7 +2346,7 @@ async function showEODReport() {
                     
                     <div style="display: flex; justify-content: space-between; margin: 25px 0 15px 0; font-size: 1.3em; font-weight: bold; border: 2px solid #000; padding: 12px;">
                         <span>CLOSING:</span>
-                        <span>${formatCurrency(closingBalance)}</span>
+                        <span>${formatCurrency(displayClosingBalance)}</span>
                     </div>
                 </div>
                 
