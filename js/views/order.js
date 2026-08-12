@@ -1,6 +1,6 @@
 // ===== Order Entry View (Keyboard-First POS) =====
 import { DB } from '../db.js';
-import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, showModal, formatDate, formatDateTime, todayISO, isCounterItem } from '../utils.js';
+import { formatCurrency, showToast, printContent, generateKOTPrintHTML, generateCounterKOTPrintHTML, generateBillPrintHTML, generateWaiterTokenPrintHTML, calculateOrderIncentive, showModal, formatDate, formatDateTime, todayISO, isCounterItem } from '../utils.js';
 import { registerShortcut, unregisterShortcut } from '../keyboard.js';
 import { LiquorApi } from '../liquorApi.js';
 import { Auth } from '../auth.js';
@@ -1031,14 +1031,17 @@ async function handleSaveOrder() {
         billedAt: now,
         date: todayISO(),
       };
-      await DB.add('orders', order);
+      const newId = await DB.add('orders', order);
+      order.id = newId;
     }
 
-    // 2. Print KOT if there were unprinted items
-    if (deltaItems.length > 0) {
-      const supplierName = suppliers.find(s => s.id === orderState.supplierId)?.name || '';
-      const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
+    const supplier = orderState.supplierId ? suppliers.find(s => s.id === orderState.supplierId) : null;
+    const supplierName = supplier?.name || '';
+    const tableName = tables.find(t => t.id === orderState.tableId)?.name || 'N/A';
 
+    // 2. Print KOT if there were unprinted items
+    let kotPrintDelay = 0;
+    if (deltaItems.length > 0) {
       // Filter out liquor items from KOT as requested
       const printableItems = deltaItems.filter(item => {
         const cat = (item.category || '').toUpperCase().trim();
@@ -1057,11 +1060,49 @@ async function handleSaveOrder() {
         setTimeout(() => {
           printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
         }, 1000);
+        kotPrintDelay = 2000;
       } else if (counterItems.length > 0) {
         printContent(generateCounterKOTPrintHTML(order, supplierName, tableName, counterItems));
+        kotPrintDelay = 1000;
       } else if (kitchenItems.length > 0) {
         const printOrder = { ...order, items: kitchenItems };
         printContent(generateKOTPrintHTML(printOrder, supplierName, tableName));
+        kotPrintDelay = 1000;
+      }
+    }
+
+    // 2b. Print Waiter Incentive Token if waiter name != 'Direct'
+    const isDirect = !supplierName || supplierName.trim().toLowerCase() === 'direct';
+    const isWaiterIncentiveEligible = supplier && !isDirect && supplier.incentiveEnabled !== false;
+
+    if (isWaiterIncentiveEligible) {
+      try {
+        const itemMap = Object.fromEntries(menuItems.map(i => [i.id, i]));
+        const todayOrders = await DB.getFiltered('orders', { where: [['date', '==', order.date || todayISO()]] });
+
+        const currentIncentive = calculateOrderIncentive(order, itemMap);
+        const prevOrders = todayOrders.filter(o => o.status === 'billed' &&
+          o.supplierId === order.supplierId &&
+          o.id !== order.id &&
+          o.orderNumber !== order.orderNumber);
+        const previousIncentive = prevOrders.reduce((sum, o) => sum + calculateOrderIncentive(o, itemMap), 0);
+        const totalEarned = previousIncentive + currentIncentive;
+
+        const waiterTokenHTML = generateWaiterTokenPrintHTML(order, supplierName, tableName, {
+          previousIncentive,
+          currentIncentive,
+          totalEarned,
+        });
+
+        if (kotPrintDelay > 0) {
+          setTimeout(() => {
+            printContent(waiterTokenHTML);
+          }, kotPrintDelay);
+        } else {
+          printContent(waiterTokenHTML);
+        }
+      } catch (incErr) {
+        console.error('Error calculating or printing waiter token:', incErr);
       }
     }
 

@@ -280,6 +280,55 @@ export function generateWaiterIncentivePrintHTML(waiterData, dateStr) {
   `;
 }
 
+export function calculateOrderIncentive(order, itemMap = {}) {
+  if (!order || !order.items) return 0;
+  let total = 0;
+  for (const item of order.items) {
+    const category = (item.category || itemMap[item.itemId]?.category || '').toUpperCase().trim();
+    const name = (item.itemName || '').toUpperCase().trim();
+    if (category === 'LIQUOR' || item.isLiquor ||
+        category === 'AC-CHARGES' || category === 'AC CHARGES' || 
+        name === 'AC-CHARGES' || name === 'AC CHARGES') continue;
+
+    const incentivePercent = (item.incentivePercent !== undefined && item.incentivePercent !== null)
+      ? item.incentivePercent
+      : (itemMap[item.itemId]?.incentivePercent || 0);
+    const amount = item.amount !== undefined ? item.amount : ((item.price || 0) * (item.quantity || 0));
+    total += (amount * incentivePercent) / 100;
+  }
+  return total;
+}
+
+export function generateWaiterTokenPrintHTML(order, supplierName, tableName, { previousIncentive = 0, currentIncentive = 0, totalEarned = 0 } = {}) {
+  const waiterName = supplierName || 'N/A';
+  return `
+    <div class="print-header">
+      <h2>WAITER INCENTIVE</h2>
+      <p>Token / Bill #${order.orderNumber}</p>
+    </div>
+    <div class="print-title" style="font-size: 17px; font-weight: 900; margin: 6px 0; text-align: center; border-bottom: 2px dashed black; padding-bottom: 6px;">
+      WAITER: ${waiterName.toUpperCase()}
+    </div>
+    <div class="print-total" style="padding-top: 4px; margin-top: 4px;">
+      <div style="display:flex; justify-content:space-between; font-size: 14px; margin: 4px 0;">
+        <span>Previous Incentive:</span>
+        <span style="font-weight:700;">${formatCurrency(previousIncentive)}</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size: 14px; margin: 4px 0;">
+        <span>Current Bill incentive:</span>
+        <span style="font-weight:700;">${formatCurrency(currentIncentive)}</span>
+      </div>
+      <div class="grand-total" style="display:flex; justify-content:space-between; font-size: 16px; font-weight: 900; border-top: 2px solid black; padding-top: 6px; margin-top: 6px;">
+        <span>Total Total Earned:</span>
+        <span>${formatCurrency(totalEarned)}</span>
+      </div>
+    </div>
+    <div class="print-footer">
+      <p>--- Waiter Copy ---</p>
+    </div>
+  `;
+}
+
 export function generateStockPrintHTML(ingredients) {
   const d = new Date();
   const dateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
