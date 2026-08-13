@@ -1071,7 +1071,8 @@ async function handleSaveOrder() {
       }
     }
 
-    // 2b. Print Waiter Incentive Token if waiter name != 'Direct'
+    // 2b. [TEMPORARILY DISABLED] Print Waiter Incentive Token if waiter name != 'Direct'
+    /*
     const isDirect = !supplierName || supplierName.trim().toLowerCase() === 'direct';
     const isWaiterIncentiveEligible = supplier && !isDirect && supplier.incentiveEnabled !== false;
 
@@ -1105,6 +1106,7 @@ async function handleSaveOrder() {
         console.error('Error calculating or printing waiter token:', incErr);
       }
     }
+    */
 
     // 3. Update ingredient/product stock (consumption)
     await updateIngredientConsumption(order.items);
