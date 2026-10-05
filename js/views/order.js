@@ -10,6 +10,7 @@ let orderState = {
   tableId: null,
   items: [],
   editingOrderId: null,
+  orderType: 'regular',
 };
 
 let suppliers = [];
@@ -20,14 +21,14 @@ let isProcessing = false;
 
 function toggleLoading(loading) {
   isProcessing = loading;
-  ['btn-kot', 'btn-bill', 'btn-save-order', 'btn-clear-order'].forEach(id => {
+  ['btn-kot', 'btn-bill', 'btn-online-bill', 'btn-save-order', 'btn-clear-order'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = loading;
   });
 }
 
 function resetOrder() {
-  orderState = { supplierId: null, tableId: null, items: [], editingOrderId: null };
+  orderState = { supplierId: null, tableId: null, items: [], editingOrderId: null, orderType: 'regular' };
 }
 
 function calculateTotals() {
@@ -160,6 +161,18 @@ export async function renderOrderView(container) {
           <h3>Order Summary</h3>
         </div>
         <div class="order-summary-body">
+          <div class="order-type-toggle" style="display:flex;gap:6px;margin-bottom:12px;background:var(--bg-elevated);padding:4px;border-radius:8px">
+            <button type="button" class="btn btn-sm ${orderState.orderType !== 'online' ? 'btn-primary' : 'btn-ghost'}" id="btn-type-regular" style="flex:1;justify-content:center;padding:4px 8px;font-size:0.8rem">
+              <span class="material-symbols-outlined" style="font-size:16px">restaurant</span> Regular
+            </button>
+            <button type="button" class="btn btn-sm ${orderState.orderType === 'online' ? 'btn-primary' : 'btn-ghost'}" id="btn-type-online" style="flex:1;justify-content:center;padding:4px 8px;font-size:0.8rem">
+              <span class="material-symbols-outlined" style="font-size:16px">public</span> Online
+            </button>
+          </div>
+          <div class="summary-row" id="summary-row-type">
+            <span class="summary-label">Order Type</span>
+            <span class="summary-value" id="summary-order-type" style="font-weight:600;color:var(--text-primary)">🍽️ Regular</span>
+          </div>
           <div class="summary-row" id="summary-row-table" style="${account?.isTableEnabled === false ? 'display:none' : ''}">
             <span class="summary-label">Table</span>
             <span class="summary-value" id="summary-table">—</span>
@@ -188,6 +201,9 @@ export async function renderOrderView(container) {
           </button>
           <button class="btn btn-success btn-lg" id="btn-bill" title="Generate Direct Bill (F2)">
             <span class="material-symbols-outlined">receipt</span> Direct Bill (F2)
+          </button>
+          <button class="btn btn-lg" id="btn-online-bill" title="Generate Online Order Bill (F4)" style="background:#0284c7;border-color:#0284c7;color:#fff;font-weight:600">
+            <span class="material-symbols-outlined">public</span> Online Bill (F4)
           </button>
           <button class="btn btn-secondary" id="btn-save-order" title="KOT & Complete — Print KOT only, mark as completed (F3)">
             <span class="material-symbols-outlined">done_all</span> KOT & Complete (F3)
@@ -269,7 +285,14 @@ function setupOrderEvents() {
   document.getElementById('btn-kot')?.addEventListener('click', handleKOT);
 
   // Bill button
-  document.getElementById('btn-bill')?.addEventListener('click', handleBill);
+  document.getElementById('btn-bill')?.addEventListener('click', () => handleBill());
+
+  // Online Bill button
+  document.getElementById('btn-online-bill')?.addEventListener('click', () => handleBill('online'));
+
+  // Order Type toggles
+  document.getElementById('btn-type-regular')?.addEventListener('click', () => setOrderType('regular'));
+  document.getElementById('btn-type-online')?.addEventListener('click', () => setOrderType('online'));
 
   // Save button
   document.getElementById('btn-save-order')?.addEventListener('click', handleSaveOrder);
@@ -713,9 +736,26 @@ function updateSummary() {
   if (el('summary-total-amount')) el('summary-total-amount').textContent = formatCurrency(totals.totalAmount);
 }
 
+function setOrderType(type) {
+  orderState.orderType = type;
+  const regBtn = document.getElementById('btn-type-regular');
+  const onlBtn = document.getElementById('btn-type-online');
+  const typeSummary = document.getElementById('summary-order-type');
+  if (type === 'online') {
+    if (regBtn) regBtn.className = 'btn btn-sm btn-ghost';
+    if (onlBtn) onlBtn.className = 'btn btn-sm btn-primary';
+    if (typeSummary) typeSummary.innerHTML = '<span style="color:#38bdf8">🌐 Online Order</span>';
+  } else {
+    if (regBtn) regBtn.className = 'btn btn-sm btn-primary';
+    if (onlBtn) onlBtn.className = 'btn btn-sm btn-ghost';
+    if (typeSummary) typeSummary.innerHTML = '🍽️ Regular';
+  }
+}
+
 function setupOrderShortcuts() {
   registerShortcut('f1', handleKOT, 'Print KOT');
-  registerShortcut('f2', handleBill, 'Direct Bill');
+  registerShortcut('f2', () => handleBill(), 'Direct Bill');
+  registerShortcut('f4', () => handleBill('online'), 'Online Bill');
   registerShortcut('f3', handleSaveOrder, 'KOT & Complete');
   registerShortcut('escape', () => {
     resetOrderAndUI();
@@ -839,7 +879,7 @@ async function handleKOT() {
   }
 }
 
-async function handleBill() {
+async function handleBill(forcedType = null) {
   if (orderState.items.length === 0) {
     showToast('Add items before generating bill', 'warning');
     return;
@@ -847,13 +887,14 @@ async function handleBill() {
   if (isProcessing) return;
 
   const totals = calculateTotals();
+  const now = new Date().toISOString();
+  let order;
+  const billingType = (typeof forcedType === 'string' && forcedType) ? forcedType : (orderState.orderType || 'regular');
+
   toggleLoading(true);
 
   try {
-    const now = new Date().toISOString();
-    let order;
-
-    // 1. Identify unprinted items (delta)
+    // 1. Compute delta items (for KOT printing)
     const deltaItems = [];
     for (const item of orderState.items) {
       const printed = item.kotPrintedQty || 0;
@@ -882,6 +923,7 @@ async function handleBill() {
       order.tableId = orderState.tableId;
       order.status = 'billed';
       order.type = 'bill';
+      order.orderType = billingType;
       order.billedAt = now;
       order.date = todayISO();
       await DB.update('orders', order);
@@ -898,6 +940,7 @@ async function handleBill() {
         totalAmount: totals.totalAmount,
         status: 'billed',
         type: 'bill',
+        orderType: billingType,
         createdAt: now,
         billedAt: now,
         date: todayISO(),
@@ -956,10 +999,14 @@ async function handleBill() {
     if (nonLiquorSubtotal > 0) {
       const proportionalAc = totals.subTotal > 0 ? (nonLiquorSubtotal / totals.subTotal) * totals.acCharge : 0;
       const walletAmount = nonLiquorSubtotal + proportionalAc;
-      await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
+      if (billingType === 'online') {
+        await DB.recordWalletTransaction('online-sale', walletAmount, `Online Bill Income: #${order.orderNumber}`, order.id, order.date);
+      } else {
+        await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
+      }
     }
 
-    showToast(`Bill #${order.orderNumber} generated!`, 'success');
+    showToast(billingType === 'online' ? `Online Bill #${order.orderNumber} generated!` : `Bill #${order.orderNumber} generated!`, 'success');
     resetOrderAndUI();
   } catch (err) {
     showToast('Failed to generate bill: ' + err.message, 'error');
@@ -1172,6 +1219,7 @@ async function handleSyncLiquor() {
 // Reset order state AND UI fields, used after KOT/Bill/Save
 function resetOrderAndUI() {
   resetOrder();
+  setOrderType('regular');
   document.getElementById('table-search').value = '';
   document.getElementById('supplier-search').value = '';
   document.getElementById('summary-table').textContent = '—';
@@ -1518,5 +1566,7 @@ async function showCompletedBills(initialDate = todayISO()) {
 export function destroyOrderView() {
   unregisterShortcut('f1');
   unregisterShortcut('f2');
+  unregisterShortcut('f3');
+  unregisterShortcut('f4');
   unregisterShortcut('ctrl+s');
 }

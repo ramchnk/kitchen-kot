@@ -219,10 +219,12 @@ export function generateBillPrintHTML(order, supplierName, tableName) {
       <p>Thank you for dining with us!</p>
     </div>
     <div class="print-title">BILL</div>
+    ${order.orderType === 'online' ? '<div style="text-align:center;font-size:14px;font-weight:900;letter-spacing:1px;padding:3px;margin-bottom:6px;border:1px dashed #000;background:#eee">*** ONLINE ORDER ***</div>' : ''}
     <div class="print-meta">
       <div><span>Bill No:</span><span>${order.orderNumber}</span></div>
       <div><span>Table:</span><span>${tableName}</span></div>
       <div><span>Date:</span><span>${formatDateTime(order.billedAt || order.createdAt)}</span></div>
+      ${order.orderType === 'online' ? '<div><span>Type:</span><span style="font-weight:bold">ONLINE</span></div>' : ''}
       ${supplierName ? `<div><span>Waiter:</span><span>${supplierName}</span></div>` : ''}
     </div>
     <table class="print-items">

@@ -31,6 +31,7 @@ export async function getWalletLedger(fromVal) {
     const amt = Number(t.amount || 0);
     if (t.type === 'income') return net + amt;
     if (t.type === 'adjustment-surplus') return net - amt;
+    if (t.type === 'online-sale' || t.type === 'online-settlement') return net;
     return net - amt;
   }, 0);
   const balanceBeforeWindow = (walletSummary.currentBalance || 0) - recentNet;
@@ -44,6 +45,9 @@ export async function getWalletLedger(fromVal) {
       currentLoopBalance += numAmount;
     } else if (t.type === 'adjustment-surplus') {
       currentLoopBalance -= numAmount;
+    } else if (t.type === 'online-sale' || t.type === 'online-settlement') {
+      // Do not alter main cash ledger balance
+      return { ...t, opening: null, closing: null };
     } else {
       currentLoopBalance -= numAmount;
     }
@@ -55,6 +59,7 @@ export async function getWalletLedger(fromVal) {
 
 export async function renderWalletView(container) {
   const { ledger, balanceBeforeWindow, windowStartDate, walletSummary } = await getWalletLedger();
+  const onlineSummary = await DB.getOnlineSummary();
 
   // Reverse for display (newest first)
   const displayTransactions = [...ledger].reverse();
@@ -62,6 +67,7 @@ export async function renderWalletView(container) {
   const totalIncome = walletSummary.totalIncome || 0;
   const totalOutflow = walletSummary.totalOutflow || 0;
   const balance = walletSummary.currentBalance || 0;
+  const onlineBalance = onlineSummary.onlineBalance || 0;
 
   container.innerHTML = `
     <div class="view-header">
@@ -69,10 +75,13 @@ export async function renderWalletView(container) {
         <span class="material-symbols-outlined view-header-icon">account_balance_wallet</span>
         <div>
           <h2 class="view-title">Wallet Management</h2>
-          <p class="view-subtitle">Cash flow tracking and withdrawals</p>
+          <p class="view-subtitle">Cash flow tracking, online settlements & withdrawals</p>
         </div>
       </div>
-      <div style="display:flex;gap:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="btn-settle-online" style="background:#0284c7;border-color:#0284c7">
+          <span class="material-symbols-outlined">move_to_inbox</span> Settle Online Payout
+        </button>
         <button class="btn btn-secondary" id="btn-recalculate-wallet" title="Correct balance from history">
           <span class="material-symbols-outlined">refresh</span> Recalculate
         </button>
@@ -87,7 +96,7 @@ export async function renderWalletView(container) {
       </div>
     </div>
 
-    <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 24px;">
+    <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 24px;">
       <div class="stat-card">
         <div class="stat-icon" style="background: rgba(34, 197, 94, 0.1); color: #22c55e">
           <span class="material-symbols-outlined">trending_up</span>
@@ -115,6 +124,15 @@ export async function renderWalletView(container) {
           <h3 class="stat-value">${formatCurrency(balance)}</h3>
         </div>
       </div>
+      <div class="stat-card" style="border: 2px solid #0284c7; background: rgba(2, 132, 199, 0.04);">
+        <div class="stat-icon" style="background: rgba(2, 132, 199, 0.15); color: #0284c7">
+          <span class="material-symbols-outlined">public</span>
+        </div>
+        <div class="stat-content">
+          <p class="stat-label">Online Sales Balance</p>
+          <h3 class="stat-value" style="color: #0284c7">${formatCurrency(onlineBalance)}</h3>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -134,10 +152,12 @@ export async function renderWalletView(container) {
           <div class="form-group" style="margin:0; width:130px">
             <input type="date" class="form-input" id="filter-wallet-to" title="To Date">
           </div>
-          <div class="form-group" style="margin:0; width:150px">
+          <div class="form-group" style="margin:0; width:170px">
             <select class="form-select" id="filter-wallet-type">
               <option value="all">All Types</option>
-              <option value="income">Credits (Bills)</option>
+              <option value="income">Credits (Bills / Payouts)</option>
+              <option value="online-sale">Online Sales Only</option>
+              <option value="online-settlement">Online Settlements Only</option>
               <option value="debit">Debits (All Outflows)</option>
               <option value="expense">Expenses Only</option>
               <option value="purchase">Purchases Only</option>
@@ -176,6 +196,7 @@ export async function renderWalletView(container) {
   });
   document.getElementById('btn-add-wallet-entry')?.addEventListener('click', () => showAddEntryModal(container));
   document.getElementById('btn-withdraw')?.addEventListener('click', () => showWithdrawModal(container, balance));
+  document.getElementById('btn-settle-online')?.addEventListener('click', () => showSettleOnlineModal(container, onlineBalance));
   
   // Wire up delete buttons
   container.querySelectorAll('.btn-delete-wallet-txn').forEach(btn => {
@@ -249,24 +270,46 @@ function renderTransactionRows(transactions, balanceBeforeWindow, windowStartDat
   }
 
   const rows = transactions.map(t => {
+    const isOnlineSale = t.type === 'online-sale';
+    const isOnlineSettle = t.type === 'online-settlement';
     const isPositive = t.type === 'income';
+
+    let badgeStyle = `background: rgba(239, 68, 68, 0.1); color: #ef4444`;
+    let badgeText = t.type.toUpperCase();
+    let amtColor = isPositive ? '#22c55e' : '#ef4444';
+    let amtPrefix = isPositive ? '+' : '-';
+
+    if (isOnlineSale) {
+      badgeStyle = `background: rgba(2, 132, 199, 0.15); color: #0284c7`;
+      badgeText = 'ONLINE SALE';
+      amtColor = '#0284c7';
+      amtPrefix = '+';
+    } else if (isOnlineSettle) {
+      badgeStyle = `background: rgba(99, 102, 241, 0.15); color: #6366f1`;
+      badgeText = 'ONLINE SETTLE';
+      amtColor = '#6366f1';
+      amtPrefix = '-';
+    } else if (isPositive) {
+      badgeStyle = `background: rgba(34, 197, 94, 0.1); color: #22c55e`;
+    }
+
     return `
             <tr>
               <td class="text-muted" style="white-space:nowrap">${formatDateTime(t.createdAt)}</td>
               <td>
-                <span class="status-badge" style="background:${isPositive ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; color:${isPositive ? '#22c55e' : '#ef4444'}">
-                  ${t.type.toUpperCase()}
+                <span class="status-badge" style="${badgeStyle}">
+                  ${badgeText}
                 </span>
               </td>
               <td>
                 <div style="font-weight:600">${t.description}</div>
                 ${t.sourceId ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Ref ID: ${t.sourceId}</div>` : ''}
               </td>
-              <td class="text-right font-mono" style="color:var(--text-muted)">${formatCurrency(t.opening)}</td>
-              <td class="text-right font-mono" style="font-weight:700; color:${isPositive ? '#22c55e' : '#ef4444'}">
-                ${isPositive ? '+' : '-'}${formatCurrency(t.amount)}
+              <td class="text-right font-mono" style="color:var(--text-muted)">${t.opening != null ? formatCurrency(t.opening) : '—'}</td>
+              <td class="text-right font-mono" style="font-weight:700; color:${amtColor}">
+                ${amtPrefix}${formatCurrency(t.amount)}
               </td>
-              <td class="text-right font-mono" style="font-weight:700;color:var(--text-primary)">${formatCurrency(t.closing)}</td>
+              <td class="text-right font-mono" style="font-weight:700;color:var(--text-primary)">${t.closing != null ? formatCurrency(t.closing) : '—'}</td>
               ${Auth.isAdmin() ? `
               <td class="text-center">
                 <button class="btn btn-sm btn-ghost text-danger btn-delete-wallet-txn" data-id="${t.id}" title="Delete Record">
@@ -277,7 +320,7 @@ function renderTransactionRows(transactions, balanceBeforeWindow, windowStartDat
             </tr>`;
   }).join('');
 
-  // Anchor row — shows balance at start of the 90-day window so user knows continuity
+  // Anchor row — shows balance at start of the window so user knows continuity
   const anchorRow = `
     <tr style="background:var(--bg-elevated); opacity:0.75; font-style:italic;">
       <td class="text-muted" style="white-space:nowrap; font-size:0.78rem">Before ${windowStartDate}</td>
@@ -436,3 +479,53 @@ function showWithdrawModal(container, currentBalance) {
     }
   });
 }
+
+function showSettleOnlineModal(container, currentOnlineBalance) {
+  showModal('Settle Online Payout to Wallet', `
+    <div class="form-group">
+      <label class="form-label">Current Online Balance (Pending): <strong style="color:#0284c7;font-size:1.1rem">${formatCurrency(currentOnlineBalance)}</strong></label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Payout Amount Received (₹) *</label>
+      <input type="number" class="form-input" id="modal-online-amount" placeholder="0.00" min="0.01" step="0.01" value="${currentOnlineBalance > 0 ? currentOnlineBalance : ''}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Platform / Settlement Note *</label>
+      <input type="text" class="form-input" id="modal-online-desc" placeholder="e.g. Swiggy Weekly Payout, Zomato Settlement, Direct Online">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Settlement Date *</label>
+      <input type="date" class="form-input" id="modal-online-date" value="${todayISO()}">
+    </div>
+  `, {
+    footer: `
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-online-settle" style="background:#0284c7;border-color:#0284c7">Transfer to Main Wallet</button>
+    `
+  });
+
+  document.getElementById('btn-save-online-settle')?.addEventListener('click', async () => {
+    const amount = parseFloat(document.getElementById('modal-online-amount').value);
+    const desc = document.getElementById('modal-online-desc').value.trim();
+    const date = document.getElementById('modal-online-date').value;
+
+    if (isNaN(amount) || amount <= 0) {
+      showToast('Enter a valid payout amount', 'error');
+      return;
+    }
+    if (!desc) {
+      showToast('Platform or settlement note is required', 'error');
+      return;
+    }
+
+    try {
+      await DB.settleOnlinePayout(amount, desc, date);
+      showToast(`₹${amount} transferred from Online Sales to Main Wallet!`, 'success');
+      closeModal();
+      renderWalletView(container);
+    } catch (err) {
+      showToast('Failed to settle online payout: ' + err.message, 'error');
+    }
+  });
+}
+

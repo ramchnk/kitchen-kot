@@ -205,11 +205,15 @@ async function loadPurchases(container, ingredientMap, productMap, grocerySuppli
         }
       }
 
+      if (batchId) {
+        await DB.deleteSupplierBillByBatchId(batchId);
+      }
+
       if (isCash && batchId) {
         await DB.deleteWalletTransactionBySourceId(batchId);
       }
 
-      showToast('Purchase deleted, stock reversed and wallet updated', 'success');
+      showToast('Purchase deleted, stock reversed, supplier bill and wallet updated', 'success');
       loadPurchases(container, ingredientMap, productMap, grocerySupplierMap);
     });
   });

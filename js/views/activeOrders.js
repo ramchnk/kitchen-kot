@@ -158,7 +158,11 @@ function setupEventListeners(container, supplierMap, tableMap) {
           const acCharge = 0;
           const proportionalAc = subTotal > 0 ? (nonLiquorSubtotal / subTotal) * acCharge : 0;
           const walletAmount = nonLiquorSubtotal + proportionalAc;
-          await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
+          if (order.orderType === 'online') {
+            await DB.recordWalletTransaction('online-sale', walletAmount, `Online Bill Income: #${order.orderNumber}`, order.id, order.date);
+          } else {
+            await DB.recordWalletTransaction('income', walletAmount, `Bill Income: #${order.orderNumber}`, order.id, order.date);
+          }
         }
 
         // ---- PRINTING LOGIC (KOTs then Bill) ----

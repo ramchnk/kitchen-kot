@@ -331,6 +331,8 @@ export const DB = {
         acc.totalIncome -= numAmount;
       } else if (t.type === 'expense' || t.type === 'purchase' || t.type === 'withdrawal') {
         acc.totalOutflow += numAmount;
+      } else if (t.type === 'online-sale' || t.type === 'online-settlement') {
+        // Online transactions are tracked separately and do not impact physical cash balance directly
       } else {
         // Any other type is treated as outflow (conservative approach)
         acc.totalOutflow += numAmount;
@@ -347,6 +349,59 @@ export const DB = {
 
     await setDoc(tenantDoc('walletSummary', 'latest'), summary);
     return summary;
+  },
+  getOnlineSummary: async () => {
+    const transactions = await DB.getAll('walletTransactions');
+    const totalOnlineSales = transactions
+      .filter(t => t.type === 'online-sale')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const totalOnlineSettled = transactions
+      .filter(t => t.type === 'online-settlement' || (t.type === 'income' && t.sourceId?.startsWith('ONLINE-PAYOUT-')))
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const onlineBalance = Math.max(0, totalOnlineSales - totalOnlineSettled);
+    return { totalOnlineSales, totalOnlineSettled, onlineBalance };
+  },
+  getOnlineSummaryByDate: async (dateStr) => {
+    const transactions = await DB.getAll('walletTransactions');
+    const pastTransactions = transactions.filter(t => {
+      const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
+      return tDate <= dateStr;
+    });
+    const todayTransactions = transactions.filter(t => {
+      const tDate = t.date || (t.createdAt ? t.createdAt.substring(0, 10) : "");
+      return tDate === dateStr;
+    });
+
+    const todayOnlineSales = todayTransactions
+      .filter(t => t.type === 'online-sale')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const totalOnlineSales = pastTransactions
+      .filter(t => t.type === 'online-sale')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const totalOnlineSettled = pastTransactions
+      .filter(t => t.type === 'online-settlement' || (t.type === 'income' && t.sourceId?.startsWith('ONLINE-PAYOUT-')))
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+    const carryForwardBalance = Math.max(0, totalOnlineSales - totalOnlineSettled);
+
+    const todayOnlineSettled = todayTransactions
+      .filter(t => t.type === 'online-settlement' || (t.type === 'income' && t.sourceId?.startsWith('ONLINE-PAYOUT-')))
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+    return { todayOnlineSales, totalOnlineSales, totalOnlineSettled, carryForwardBalance, todayOnlineSettled };
+  },
+  settleOnlinePayout: async (amount, note = '', customDate = null) => {
+    const numAmount = Number(amount);
+    if (numAmount <= 0) throw new Error('Settlement amount must be greater than 0');
+    const payoutId = Date.now();
+    const cleanNote = note ? note.trim() : 'Online Aggregator Payout';
+
+    // 1. Record online-settlement to track deduction from Online Sales Receivables
+    await DB.recordWalletTransaction('online-settlement', numAmount, `Online Settlement: ${cleanNote}`, `ONLINE-SETTLE-${payoutId}`, customDate);
+
+    // 2. Record Income into Main Wallet so funds become available in cash/bank balance
+    await DB.recordWalletTransaction('income', numAmount, `Online Payout: ${cleanNote}`, `ONLINE-PAYOUT-${payoutId}`, customDate);
+
+    return payoutId;
   },
   recordWalletTransaction: async (type, amount, description, sourceId = null, customDate = null) => {
     const accId = _accountId;
@@ -379,6 +434,8 @@ export const DB = {
         // Fix: Only deduct from Income (Balance reduces by 1x)
         summary.totalIncome -= numAmount;
         summary.currentBalance -= numAmount;
+      } else if (type === 'online-sale' || type === 'online-settlement') {
+        // Online sale & settlement do not mutate main physical wallet summary directly
       } else {
         summary.totalOutflow += numAmount;
         summary.currentBalance -= numAmount;
@@ -417,6 +474,21 @@ export const DB = {
     if (transactions.length > 0) {
         // Recalculate totals to ensure summary card is in sync
         await DB.recalculateWalletTotals();
+    }
+    return true;
+  },
+  deleteSupplierBillByBatchId: async (batchId) => {
+    if (!batchId) return false;
+    const bills = await DB.getFiltered('supplierBills', {
+      where: ['batchId', '==', String(batchId)]
+    });
+    for (const b of bills) {
+      const payments = await DB.getAll('supplierPayments');
+      const linkedPayments = payments.filter(p => p.billId === b.id || String(p.billId) === String(b.id));
+      for (const p of linkedPayments) {
+        await DB.remove('supplierPayments', p.id);
+      }
+      await DB.remove('supplierBills', b.id);
     }
     return true;
   },

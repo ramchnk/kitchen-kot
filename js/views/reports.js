@@ -438,6 +438,11 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
     `;
   };
 
+  const onlineOrders = orders.filter(o => o.orderType === 'online');
+  const regularOrders = orders.filter(o => o.orderType !== 'online');
+  const onlineBilledAmount = onlineOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+  const regularBilledAmount = regularOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
+
   tab.innerHTML = `
     <div style="margin-bottom:20px; display:flex; gap:12px; align-items:center; justify-content: space-between;">
       <div style="display:flex; gap:12px; align-items:center; flex:1">
@@ -452,7 +457,7 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       </button>
     </div>
 
-    <div class="stats-grid">
+    <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
       <div class="stat-card">
         <div class="stat-icon purple"><span class="material-symbols-outlined">restaurant</span></div>
         <div><div class="stat-value">${formatCurrency(foodAmount)}</div><div class="stat-label">Food Sale (Billed)</div></div>
@@ -463,7 +468,11 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
       </div>
       <div class="stat-card">
         <div class="stat-icon green"><span class="material-symbols-outlined">payments</span></div>
-        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Revenue (Excl. Liquor)</div></div>
+        <div><div class="stat-value">${formatCurrency(grandTotalAmount)}</div><div class="stat-label">Total Revenue</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(2, 132, 199, 0.15); color:#0284c7"><span class="material-symbols-outlined">public</span></div>
+        <div><div class="stat-value" style="color:#0284c7">${formatCurrency(onlineBilledAmount)}</div><div class="stat-label">Online (${onlineOrders.length})</div></div>
       </div>
       <div class="stat-card">
         <div class="stat-icon orange"><span class="material-symbols-outlined">lunch_dining</span></div>
@@ -497,6 +506,16 @@ function generateSalesReport(container, orders, itemMap, dateStr, dayAdjustments
                 <td class="text-right" style="padding:12px 16px">Counter Sales (Billed)</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${counterBilledQty}</td>
                 <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(counterBilledAmount)}</td>
+              </tr>
+              <tr style="font-weight:600;font-size:0.9rem;color:var(--text-secondary)">
+                <td class="text-right" style="padding:12px 16px">↳ Direct Regular Sales</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${regularOrders.length} bills</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(regularBilledAmount)}</td>
+              </tr>
+              <tr style="font-weight:600;font-size:0.9rem;color:#0284c7">
+                <td class="text-right" style="padding:12px 16px">↳ Online Sales</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${onlineOrders.length} bills</td>
+                <td class="text-right font-mono" style="padding:12px 16px">${formatCurrency(onlineBilledAmount)}</td>
               </tr>
               ${adjustmentAmount > 0 ? `
               <tr style="font-weight:600;font-size:0.9rem;color:#d97706">
@@ -2097,7 +2116,12 @@ async function showEODReport() {
         t.description?.toLowerCase().includes('adjustment - excess') ||
         t.description?.toLowerCase().includes('adjustment-excess');
 
-    // Manually added income entries in wallet (excluding those that are Excess Adjustments)
+    // Online Payout entries (settlement from aggregators moved to main cash/bank wallet)
+    const isOnlinePayout = (t) =>
+        t.sourceId?.startsWith('ONLINE-PAYOUT-') ||
+        (t.description && t.description.toLowerCase().includes('online payout'));
+
+    // Manually added income entries in wallet (excluding those that are Excess Adjustments or Online Payouts)
     const isManualIncome = (t) =>
         t.type === 'income' &&
         (t.sourceId === null ||
@@ -2105,7 +2129,8 @@ async function showEODReport() {
          String(t.sourceId) === 'null' ||
          String(t.sourceId) === 'undefined' ||
          String(t.sourceId).trim() === '') &&
-        !isExcessAdjustment(t);
+        !isExcessAdjustment(t) &&
+        !isOnlinePayout(t);
 
     // Improved filtering for today's transactions (anything specifically on the selected date)
     const todayTransactions = recentTransactions.filter(t => {
@@ -2113,13 +2138,20 @@ async function showEODReport() {
         return tDate === dateStr;
     });
 
-    // Today Sales (Incomes that are NOT adjustments and NOT manual entries)
+    // Today Sales (Incomes that are NOT adjustments, NOT manual entries, and NOT online payouts)
     const todaySales = todayTransactions.reduce((sum, t) => {
         if (isAdjustment(t)) return sum;
         if (isManualIncome(t)) return sum;
+        if (isOnlinePayout(t)) return sum;
         if (t.type === 'income') return sum + Number(t.amount || 0);
         return sum;
     }, 0);
+
+    // Online Sales & Carry Forward Data
+    const onlineData = await DB.getOnlineSummaryByDate(dateStr);
+    const todayOnlineSales = onlineData.todayOnlineSales || 0;
+    const carryForwardOnlineBalance = onlineData.carryForwardBalance || 0;
+    const todayOnlineSettled = todayTransactions.filter(isOnlinePayout).reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     // Sum of manually added income entries
     const todayManualIncome = todayTransactions.filter(isManualIncome).reduce((sum, t) => sum + Number(t.amount || 0), 0);
@@ -2168,18 +2200,19 @@ async function showEODReport() {
         const amt = Number(t.amount || 0);
         if (t.type === 'income') return net + amt;
         if (t.type === 'adjustment-surplus') return net - amt;
+        if (t.type === 'online-sale' || t.type === 'online-settlement') return net;
         return net - amt;
     }, 0);
 
     // Final Totals - exactly mirroring wallet balance logic
     const oldCashHand = (walletSummary.currentBalance || 0) - recentNet;
-    // todayCashHand = Sales + Manual Income - Surplus - Expenses - Withdrawals (all outflows)
-    const todayCashHand = todaySales + todayManualIncome - todaySurplusOutflow - todayExpenses - todayWithdrawals;
+    // todayCashHand = Direct Sales + Manual Income + Online Settlements - Surplus - Expenses - Withdrawals (all outflows)
+    const todayCashHand = todaySales + todayManualIncome + todayOnlineSettled - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     
-    // For display: full sales amount (includes counter/shortage adjustments)
+    // For display: direct sales amount (includes counter/shortage adjustments)
     const displaySalesAmount = todaySales; // = todaySales (already includes shortage income)
-    // Today Cash in Hand = full sales + manual income - surplus outflow - expenses - withdrawals
-    const displayCashInHand = displaySalesAmount + todayManualIncome - todaySurplusOutflow - todayExpenses - todayWithdrawals;
+    // Today Cash in Hand = direct sales + manual income + online settlements - surplus outflow - expenses - withdrawals
+    const displayCashInHand = displaySalesAmount + todayManualIncome + todayOnlineSettled - todaySurplusOutflow - todayExpenses - todayWithdrawals;
     // Closing = Opening + Cash in Hand for today
     const displayClosingBalance = oldCashHand + displayCashInHand;
 
@@ -2199,9 +2232,25 @@ async function showEODReport() {
         <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
 
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
-            <span>Today Sales Amount</span>
+            <span>Today Sales (Direct)</span>
             <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(displaySalesAmount).replace('₹', '')}</span>
           </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Today Online Sales</span>
+            <span style="color: #0284c7; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayOnlineSales).replace('₹', '')}</span>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 600; opacity: 0.95; background: rgba(2, 132, 199, 0.1); padding: 8px 12px; border-radius: 8px; border: 1px dashed rgba(2, 132, 199, 0.4);">
+            <span style="color: #38bdf8">Online Balance (Carry Fwd)</span>
+            <span style="color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(carryForwardOnlineBalance).replace('₹', '')}</span>
+          </div>
+
+          ${todayOnlineSettled > 0 ? `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
+            <span>Online Payout Received</span>
+            <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700;">= ${formatCurrency(todayOnlineSettled).replace('₹', '')}</span>
+          </div>` : ''}
 
           ${todayManualIncomes.map(t => `
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 1.05rem; font-weight: 500; opacity: 0.9;">
@@ -2304,9 +2353,22 @@ async function showEODReport() {
                 
                 <div style="margin: 20px 0; font-size: 1.1em; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
-                        <span>Sales:</span>
-                        <span>${formatCurrency(todaySales)}</span>
+                        <span>Sales (Direct):</span>
+                        <span>${formatCurrency(displaySalesAmount)}</span>
                     </div>
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Online Sales:</span>
+                        <span>${formatCurrency(todayOnlineSales)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0; font-weight: bold;">
+                        <span>Online Bal (C/F):</span>
+                        <span>${formatCurrency(carryForwardOnlineBalance)}</span>
+                    </div>
+                    ${todayOnlineSettled > 0 ? `
+                    <div style="display: flex; justify-content: space-between; margin: 10px 0;">
+                        <span>Online Settled:</span>
+                        <span>+ ${formatCurrency(todayOnlineSettled)}</span>
+                    </div>` : ''}
                     ${todayManualIncomes.map(t => `
                     <div style="display: flex; justify-content: space-between; margin: 10px 0;">
                         <span>${t.description || 'Manual Credit'}:</span>
@@ -2337,7 +2399,7 @@ async function showEODReport() {
                     </div>` : ''}
                     <div style="display: flex; justify-content: space-between; margin: 15px 0; font-weight: bold; border-top: 1px dashed #000; padding-top: 10px;">
                         <span>Cash in Hand:</span>
-                        <span>${formatCurrency(todayCashHand)}</span>
+                        <span>${formatCurrency(displayCashInHand)}</span>
                     </div>
                     
                     <div style="display: flex; justify-content: space-between; margin: 10px 0; border-top: 1px solid #000; padding-top: 10px;">
